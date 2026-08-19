@@ -1,0 +1,10 @@
+backend/.venv/
+backend/uploads/*
+backend/invoices.db
+node_modules/
+frontend/dist/
+.env
+*.log
+__pycache__/
+*.pyc
+.DS_Store

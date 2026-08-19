@@ -1,0 +1,10 @@
+# Netlify-Konfiguration für das Doku-Agent-Frontend.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA-Fallback: alle Routen auf index.html leiten
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

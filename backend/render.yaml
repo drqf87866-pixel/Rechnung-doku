@@ -1,0 +1,17 @@
+# Render Blueprint für den doku-agent-backend Webservice.
+# DATABASE_URL (Supabase-Pooler-URL) und CORS_ORIGINS werden im Render-Dashboard
+# als Secrets gesetzt (sync: false).
+services:
+  - type: web
+    name: doku-agent-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: UPLOAD_DIR
+        value: ./uploads
