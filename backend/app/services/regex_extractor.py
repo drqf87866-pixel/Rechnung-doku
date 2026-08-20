@@ -20,11 +20,32 @@ _LABEL_LEAD = (
     r")"
 )
 
+# Kunden-/Debitorennummer – darf nie als Rechnungsnummer landen.
+_KUNDEN_LABEL = (
+    r"(?:"
+    r"Kunden(?:nummer|nr\.?|\s*[-–]?\s*Nr\.?)"
+    r"|Kd\.?\s*[-–]?\s*Nr\.?"
+    r"|Debitor(?:en)?(?:nummer|nr\.?|\s*[-–]?\s*Nr\.?)"
+    r"|Customer\s*(?:no\.?|number|#)"
+    r"|Cust\.?\s*[-–]?\s*(?:No\.?|Nr\.?)"
+    r")"
+)
+
+LABEL_RECHNUNGSNUMMER_ONLY_RE = re.compile(_LABEL_LEAD, re.IGNORECASE)
+KUNDEN_LABEL_RE = re.compile(_KUNDEN_LABEL, re.IGNORECASE)
+
 # Wert direkt nach dem Label (gleiche oder nächste Zeile).
 LABEL_RECHNUNGSNUMMER_RE = re.compile(
-    _LABEL_LEAD + r"\s*[:#–—\-]?\s*([A-Za-z0-9][A-Za-z0-9_\-/\.]{0,})",
+    _LABEL_LEAD + r"\s*[:#–—\-/]?\s*([A-Za-z0-9][A-Za-z0-9_\-/\.]{0,})",
     re.IGNORECASE,
 )
+
+LABEL_KUNDENNUMMER_RE = re.compile(
+    _KUNDEN_LABEL + r"\s*[:#–—\-/]?\s*([A-Za-z0-9][A-Za-z0-9_\-/\.]{0,})",
+    re.IGNORECASE,
+)
+
+_VALUE_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_\-/\.]*")
 
 # Layout: "Rechnung" / "Nummer" / Wert (je eigene Zeile).
 RECHNUNG_NUMMER_BLOCK_RE = re.compile(
@@ -60,6 +81,12 @@ _PLACEHOLDER_NUMMERN = frozenset(
         "blatt",
         "ummer",
         "ung",
+        "kundennummer",
+        "kundennr",
+        "kundennr.",
+        "debitor",
+        "debitoren",
+        "debitorennummer",
     }
 )
 
@@ -194,13 +221,86 @@ def _clean_rechnungsnummer(value: str) -> str | None:
         return None
     if value.lower() in _PLACEHOLDER_NUMMERN:
         return None
+    # Keine anderen Feld-Labels als Wert akzeptieren.
+    if KUNDEN_LABEL_RE.fullmatch(value) or LABEL_RECHNUNGSNUMMER_ONLY_RE.fullmatch(value):
+        return None
     # Eine echte Rechnungsnummer enthält mindestens eine Ziffer.
     if not re.search(r"\d", value):
         return None
     return value
 
 
+def _line_value_tokens(line: str) -> list[str]:
+    """Werte einer Datenzeile (Leerzeichen oder '/' getrennt), ohne reine Labels."""
+    tokens: list[str] = []
+    for raw in _VALUE_TOKEN_RE.findall(line):
+        cleaned = _clean_rechnungsnummer(raw)
+        if cleaned:
+            tokens.append(cleaned)
+    return tokens
+
+
+def _extract_from_kunden_rechnung_headers(text: str) -> str | None:
+    """Spaltenköpfe Kundennummer + Rechnungsnummer → richtige Spalte wählen."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines[:-1]):
+        kunden = list(KUNDEN_LABEL_RE.finditer(line))
+        rechnung = list(LABEL_RECHNUNGSNUMMER_ONLY_RE.finditer(line))
+        if not kunden or not rechnung:
+            continue
+
+        next_line = ""
+        for candidate in lines[index + 1 :]:
+            if candidate.strip():
+                next_line = candidate
+                break
+        if not next_line:
+            continue
+
+        values = _line_value_tokens(next_line)
+        if len(values) < 2:
+            continue
+
+        if kunden[0].start() < rechnung[0].start():
+            return values[1]
+        return values[0]
+    return None
+
+
+def _collect_kundennummern(text: str) -> set[str]:
+    """Explizit gelabelte Kundennummern – als Rechnungsnummer verboten."""
+    found: set[str] = set()
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        # Header-Zeile mit beiden Labels: Werte der nächsten Zeile nach Spalte.
+        kunden = list(KUNDEN_LABEL_RE.finditer(line))
+        rechnung = list(LABEL_RECHNUNGSNUMMER_ONLY_RE.finditer(line))
+        if kunden and rechnung and index + 1 < len(lines):
+            next_line = ""
+            for candidate in lines[index + 1 :]:
+                if candidate.strip():
+                    next_line = candidate
+                    break
+            values = _line_value_tokens(next_line) if next_line else []
+            if len(values) >= 2:
+                if kunden[0].start() < rechnung[0].start():
+                    found.add(values[0])
+                else:
+                    found.add(values[1])
+                continue
+
+        for match in LABEL_KUNDENNUMMER_RE.finditer(line):
+            value = _clean_rechnungsnummer(match.group(1))
+            if value:
+                found.add(value)
+    return found
+
+
 def _extract_rechnungsnummer(text: str) -> str | None:
+    header_value = _extract_from_kunden_rechnung_headers(text)
+    if header_value:
+        return header_value
+
     for pattern in (
         RECHNUNG_NUMMER_BLOCK_RE,
         RECHNUNG_DATUM_SEITE_RE,
@@ -212,14 +312,31 @@ def _extract_rechnungsnummer(text: str) -> str | None:
             if value:
                 return value
 
+    kundennummern = _collect_kundennummern(text)
+
     for match in LABEL_RECHNUNGSNUMMER_RE.finditer(text):
+        # Auf reinen Header-Zeilen (Label neben Kundennummer) nicht den
+        # ersten Wert der Folgezeile greifen – das erledigt der Header-Pfad.
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        line_end = text.find("\n", match.end())
+        if line_end < 0:
+            line_end = len(text)
+        line = text[line_start:line_end]
+        if KUNDEN_LABEL_RE.search(line) and LABEL_RECHNUNGSNUMMER_ONLY_RE.search(line):
+            continue
+
         value = _clean_rechnungsnummer(match.group(1))
-        if value:
-            return value
+        if not value:
+            continue
+        if value in kundennummern:
+            continue
+        return value
 
     match = CODE_RECHNUNGSNUMMER_RE.search(text)
     if match:
-        return match.group(0).strip()
+        code = match.group(0).strip()
+        if code not in kundennummern:
+            return code
 
     return None
 

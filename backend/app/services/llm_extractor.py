@@ -14,8 +14,12 @@ logger = logging.getLogger(__name__)
 
 _PROMPT = (
     "Extrahiere die Rechnungsdaten aus diesem PDF-Dokument.\n"
-    "- rechnungsnummer: die Rechnungsnummer (auch Rechn.Nr., Invoice No.). "
-    "Nicht Kundennummer, Debitor, Auftragsnummer, Lieferschein oder Projekt.\n"
+    "- kundennummer: nur die Kundennummer / Debitorennummer / Kd-Nr. "
+    "(falls vorhanden). Nicht die Rechnungsnummer.\n"
+    "- rechnungsnummer: nur die Rechnungsnummer (auch Rechn.Nr., Invoice No., "
+    "Rechnung/Nummer). "
+    "Niemals Kundennummer, Debitor, Auftragsnummer, Lieferschein oder Projekt. "
+    "Wenn beide Nummern auf dem Beleg stehen, müssen sie in getrennte Felder.\n"
     "- rechnungsbetrag: der Endbetrag bzw. Zahlbetrag ohne Abzug / Bruttobetrag "
     "als Dezimalzahl (z. B. 1234.56). Nicht Positionssummen, Netto ohne Steuer "
     "oder Skonto-Zwischensummen.\n"
@@ -27,11 +31,19 @@ _PROMPT = (
 
 
 class LlmInvoiceFields(BaseModel):
+    kundennummer: str | None = Field(
+        default=None,
+        description=(
+            "Kundennummer / Debitorennummer / Kd-Nr. / Customer No. "
+            "Nicht die Rechnungsnummer."
+        ),
+    )
     rechnungsnummer: str | None = Field(
         default=None,
         description=(
             "Rechnungsnummer / Invoice number / Rechn.Nr. "
-            "Nicht Kundennummer, Auftragsnummer oder Lieferscheinnummer."
+            "Nicht Kundennummer, Auftragsnummer oder Lieferscheinnummer. "
+            "Muss von kundennummer verschieden sein, wenn beide existieren."
         ),
     )
     rechnungsbetrag: float | None = Field(
@@ -79,6 +91,15 @@ def _normalize_waehrung(value: str | None) -> str:
 
 def _result_from_fields(fields: LlmInvoiceFields, hinweise_prefix: str | None = None) -> ExtractionResult:
     rechnungsnummer = _clean_rechnungsnummer(fields.rechnungsnummer)
+    kundennummer = _clean_rechnungsnummer(fields.kundennummer)
+    # Falls das Modell beide verwechselt hat: Kundennummer nicht als Rechnung übernehmen.
+    if (
+        rechnungsnummer is not None
+        and kundennummer is not None
+        and rechnungsnummer == kundennummer
+    ):
+        rechnungsnummer = None
+
     rechnungsbetrag = fields.rechnungsbetrag
     nettobetrag, steuerbetrag = derive_missing_amounts(
         rechnungsbetrag, fields.nettobetrag, fields.steuerbetrag

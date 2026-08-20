@@ -139,3 +139,35 @@ def test_llm_result_derives_steuer():
         )
     )
     assert result.steuerbetrag == 19.0
+
+
+def test_llm_verwirft_kundennummer_als_rechnungsnummer():
+    from app.services.llm_extractor import _result_from_fields
+
+    result = _result_from_fields(
+        LlmInvoiceFields(
+            kundennummer="1020558",
+            rechnungsnummer="1020558",
+            rechnungsbetrag=24.15,
+            waehrung="EUR",
+        )
+    )
+    assert result.rechnungsnummer is None
+    assert result.rechnungsbetrag == 24.15
+    assert "Keine Rechnungsnummer gefunden" in (result.hinweise or "")
+
+
+def test_llm_behaelt_echte_rechnungsnummer_neben_kundennummer():
+    from app.services.llm_extractor import _result_from_fields
+
+    result = _result_from_fields(
+        LlmInvoiceFields(
+            kundennummer="1020558",
+            rechnungsnummer="91016032",
+            rechnungsbetrag=24.15,
+            waehrung="EUR",
+        )
+    )
+    assert result.rechnungsnummer == "91016032"
+    assert result.rechnungsbetrag == 24.15
+    assert result.konfidenz == 0.9

@@ -105,7 +105,17 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
       )}
 
       <div className="table-wrap">
-        <table>
+        <table className="invoice-table">
+          <colgroup>
+            <col className="col-nummer" />
+            <col className="col-betrag" />
+            <col className="col-betrag" />
+            <col className="col-betrag" />
+            <col className="col-dateiname" />
+            <col className="col-konfidenz" />
+            <col className="col-upload" />
+            <col className="col-actions" />
+          </colgroup>
           <thead>
             <tr>
               <th>Rechnungsnummer</th>
@@ -150,7 +160,9 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
                   </td>
                   <td>{formatBetrag(invoice.nettobetrag, invoice.waehrung)}</td>
                   <td>{formatBetrag(invoice.steuerbetrag, invoice.waehrung)}</td>
-                  <td>{invoice.filename}</td>
+                  <td className="cell-truncate" title={invoice.filename}>
+                    {invoice.filename}
+                  </td>
                   <td>
                     <span className={`badge badge-${konfidenz.level}`}>
                       {konfidenz.label}
@@ -159,7 +171,7 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
                   <td>{formatDatum(invoice.upload_time)}</td>
                   <td className="actions">
                     {isEditing ? (
-                      <>
+                      <div className="actions-group">
                         <button
                           type="button"
                           className="btn btn-primary btn-sm"
@@ -175,9 +187,9 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
                         >
                           Abbrechen
                         </button>
-                      </>
+                      </div>
                     ) : (
-                      <>
+                      <div className="actions-group">
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"
@@ -199,7 +211,7 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
                         >
                           Löschen
                         </button>
-                      </>
+                      </div>
                     )}
                   </td>
                 </tr>

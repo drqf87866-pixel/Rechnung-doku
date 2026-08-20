@@ -250,3 +250,66 @@ def test_ohne_netto_steuer_bleiben_leer():
     assert result.rechnungsbetrag == 50.0
     assert result.nettobetrag is None
     assert result.steuerbetrag is None
+
+
+def test_spaltenlayout_kundennummer_links_nicht_als_rechnung():
+    """Header Kundennummer | Rechnungsnummer → zweite Spalte."""
+    text = (
+        "Kundennummer    Rechnungsnummer\n"
+        "1020558         91016032\n"
+        "Endbetrag 24,15 EUR\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "91016032"
+    assert result.rechnungsbetrag == 24.15
+
+
+def test_spaltenlayout_rechnungsnummer_links():
+    text = (
+        "Rechnungsnummer    Kundennummer\n"
+        "91016032           1020558\n"
+        "Endbetrag 24,15 EUR\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "91016032"
+    assert result.rechnungsbetrag == 24.15
+
+
+def test_slash_header_kunden_vor_rechnung():
+    text = (
+        "Kundennummer / Rechnungsnummer\n"
+        "1020558 / 91016032\n"
+        "Gesamtbetrag: 99,00 €\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "91016032"
+    assert result.rechnungsbetrag == 99.0
+
+
+def test_kd_nr_slash_rechn_nr():
+    text = (
+        "Kd.-Nr. / Rechn.-Nr.\n"
+        "4711 / RE-2024-1\n"
+        "Rechnungsbetrag: 10,00 €\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "RE-2024-1"
+    assert result.rechnungsbetrag == 10.0
+
+
+def test_nur_kundennummer_keine_rechnungsnummer():
+    text = "Kundennummer: 1020558\nEndbetrag: 24,15 EUR"
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer is None
+    assert result.rechnungsbetrag == 24.15
+
+
+def test_kundennummer_und_rechnungsnummer_getrennt_gelabelt():
+    text = (
+        "Ihre Kundennummer: 1020558\n"
+        "Rechnungsnummer: 91016032\n"
+        "Endbetrag: 24,15\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "91016032"
+    assert result.rechnungsbetrag == 24.15
