@@ -58,13 +58,13 @@ Vite läuft auf http://localhost:5173, ein Proxy leitet `/api` an http://localho
 
 PDFs ohne Textschicht (Scans) werden automatisch per OCR gelesen (RapidOCR + ONNX Runtime, pip-installierbar, keine System-Binaries nötig). Die OCR-Modelle liegen der `rapidocr`-Installation bei und werden beim ersten Start geladen (einmalig ~1 s). Die Textextraktion dauert dadurch bei Scan-PDFs einige Sekunden pro Seite; digitale PDFs bleiben unverändert schnell.
 
-**Render-Hinweis:** `rapidocr` zieht `opencv-python` nach, das auf Linux `libGL` benötigt. Build Command daher erweitern:
+**Render-Hinweis:** `rapidocr` zieht `opencv-python` nach, das auf Linux `libGL` benötigt und zusätzlichen Speicher kostet. Im Build-Command wird es deshalb durch die headless-Variante ersetzt (identische `cv2`-API ohne GUI-Anteile). Build Command:
 
 ```bash
-apt-get update && apt-get install -y libgl1 libglib2.0-0 && pip install -r requirements.txt
+pip install -r requirements.txt && pip uninstall -y opencv-python && pip install opencv-python-headless
 ```
 
-Alternativ (ohne System-Pakete) nach dem Install von `opencv-python` auf `opencv-python-headless` wechseln.
+Die headless-Variante braucht keine System-Pakete wie `libgl1`/`libglib2.0-0`.
 
 ## Deployment
 
@@ -100,7 +100,7 @@ Die Tabellen werden beim ersten Start automatisch von FastAPI angelegt (`Base.me
 
 ### Render (Backend)
 
-- `render.yaml` wird als Blueprint unterstützt (New → Blueprint). Alternativ manuell: New Web Service → Root-Directory `backend` wählen (wenn das Repo an der Wurzel liegt), Build Command `pip install -r requirements.txt`, Start Command `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+- `render.yaml` wird als Blueprint unterstützt (New → Blueprint). Alternativ manuell: New Web Service → Root-Directory `backend` wählen (wenn das Repo an der Wurzel liegt), Build Command `pip install -r requirements.txt && pip uninstall -y opencv-python && pip install opencv-python-headless`, Start Command `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
 - Env-Variablen in Render setzen:
   - `DATABASE_URL` (Supabase-Pooler-URL)
   - `CORS_ORIGINS` (z.B. `https://rechnung-doku.netlify.app,http://localhost:5173`)

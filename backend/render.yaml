@@ -6,7 +6,7 @@ services:
     name: doku-agent-backend
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && pip uninstall -y opencv-python && pip install opencv-python-headless
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
