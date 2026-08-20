@@ -69,7 +69,27 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Doku-Agent – Rechnungsplattform</h1>
+        <div className="brand">
+          <div className="brand-icon" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+              <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+              <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+              <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+              <path d="M9 12h6" />
+              <path d="M9 8h6" />
+              <path d="M9 16h4" />
+            </svg>
+          </div>
+          <h1>Doku-Agent</h1>
+        </div>
         <p>PDF-Rechnungen hochladen, prüfen und verwalten.</p>
       </header>
 
