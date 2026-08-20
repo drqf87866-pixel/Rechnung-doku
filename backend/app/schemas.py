@@ -14,6 +14,8 @@ class InvoiceOut(BaseModel):
     bauvorhaben: str
     rechnungsnummer: Optional[str]
     rechnungsbetrag: Optional[float]
+    nettobetrag: Optional[float] = None
+    steuerbetrag: Optional[float] = None
     waehrung: str
     konfidenz: Optional[float]
     hinweise: Optional[str]
@@ -23,4 +25,6 @@ class InvoiceOut(BaseModel):
 class InvoicePatch(BaseModel):
     rechnungsnummer: Optional[str] = None
     rechnungsbetrag: Optional[float] = None
+    nettobetrag: Optional[float] = None
+    steuerbetrag: Optional[float] = None
     bauvorhaben: Optional[str] = None

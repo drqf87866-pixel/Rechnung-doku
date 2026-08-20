@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import storage
 from app.config import settings
 from app.database import Base, engine
+from app.db_migrate import ensure_invoice_columns
 from app.routers import invoices
 
 logging.basicConfig(level=logging.INFO)
@@ -17,6 +18,7 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_invoice_columns(engine)
     storage.ensure_bucket()
     yield
 

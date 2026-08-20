@@ -8,7 +8,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.services.regex_extractor import ExtractionResult
+from app.services.regex_extractor import ExtractionResult, derive_missing_amounts
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +16,12 @@ _PROMPT = (
     "Extrahiere die Rechnungsdaten aus diesem PDF-Dokument.\n"
     "- rechnungsnummer: die Rechnungsnummer (auch Rechn.Nr., Invoice No.). "
     "Nicht Kundennummer, Debitor, Auftragsnummer, Lieferschein oder Projekt.\n"
-    "- rechnungsbetrag: der Endbetrag bzw. Zahlbetrag ohne Abzug / Gesamtbetrag "
+    "- rechnungsbetrag: der Endbetrag bzw. Zahlbetrag ohne Abzug / Bruttobetrag "
     "als Dezimalzahl (z. B. 1234.56). Nicht Positionssummen, Netto ohne Steuer "
     "oder Skonto-Zwischensummen.\n"
+    "- nettobetrag: der Nettobetrag vor Steuer als Dezimalzahl, falls erkennbar.\n"
+    "- steuerbetrag: der Steuerbetrag (MwSt./USt./VAT) als Dezimalzahl, falls erkennbar. "
+    "Nicht den Steuersatz in Prozent.\n"
     "- waehrung: EUR, CHF, USD oder GBP."
 )
 
@@ -34,8 +37,20 @@ class LlmInvoiceFields(BaseModel):
     rechnungsbetrag: float | None = Field(
         default=None,
         description=(
-            "Endbetrag oder Zahlbetrag ohne Abzug als Dezimalzahl "
+            "Endbetrag / Bruttobetrag oder Zahlbetrag ohne Abzug als Dezimalzahl "
             "(deutsche 1.234,56 → 1234.56). Kein Skonto-Betrag, keine Position."
+        ),
+    )
+    nettobetrag: float | None = Field(
+        default=None,
+        description=(
+            "Nettobetrag vor Steuer als Dezimalzahl, falls auf der Rechnung ausgewiesen."
+        ),
+    )
+    steuerbetrag: float | None = Field(
+        default=None,
+        description=(
+            "Steuerbetrag (MwSt./USt./VAT) als Dezimalzahl, nicht der Prozentsatz."
         ),
     )
     waehrung: str = Field(
@@ -65,6 +80,9 @@ def _normalize_waehrung(value: str | None) -> str:
 def _result_from_fields(fields: LlmInvoiceFields, hinweise_prefix: str | None = None) -> ExtractionResult:
     rechnungsnummer = _clean_rechnungsnummer(fields.rechnungsnummer)
     rechnungsbetrag = fields.rechnungsbetrag
+    nettobetrag, steuerbetrag = derive_missing_amounts(
+        rechnungsbetrag, fields.nettobetrag, fields.steuerbetrag
+    )
     waehrung = _normalize_waehrung(fields.waehrung)
 
     hinweise: list[str] = []
@@ -88,6 +106,8 @@ def _result_from_fields(fields: LlmInvoiceFields, hinweise_prefix: str | None = 
         waehrung=waehrung,
         konfidenz=konfidenz,
         hinweise="; ".join(hinweise) if hinweise else None,
+        nettobetrag=nettobetrag,
+        steuerbetrag=steuerbetrag,
     )
 
 

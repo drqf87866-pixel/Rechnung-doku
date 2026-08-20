@@ -12,6 +12,19 @@ function safeFilenamePart(name) {
 }
 
 /**
+ * Summiert ein Betragsfeld über alle Rechnungen.
+ * @param {Object[]} invoices
+ * @param {string} field
+ * @returns {number}
+ */
+function sumField(invoices, field) {
+  return invoices.reduce(
+    (total, invoice) => total + (invoice[field] != null ? invoice[field] : 0),
+    0
+  );
+}
+
+/**
  * Exportiert die Rechnungen eines Bauvorhabens als .xlsx-Datei.
  * @param {string} bauvorhaben
  * @param {Object[]} invoices
@@ -19,22 +32,21 @@ function safeFilenamePart(name) {
 export function exportBauvorhabenExcel(bauvorhaben, invoices) {
   const rows = invoices.map((invoice) => ({
     Rechnungsnummer: invoice.rechnungsnummer ?? "",
-    Betrag: invoice.rechnungsbetrag ?? "",
+    Brutto: invoice.rechnungsbetrag ?? "",
+    Netto: invoice.nettobetrag ?? "",
+    Steuer: invoice.steuerbetrag ?? "",
     Währung: invoice.waehrung && invoice.waehrung !== "UNKNOWN" ? invoice.waehrung : "EUR",
     Dateiname: invoice.filename ?? "",
     Upload: formatDatum(invoice.upload_time),
   }));
 
-  const summe = invoices.reduce(
-    (total, invoice) =>
-      total + (invoice.rechnungsbetrag != null ? invoice.rechnungsbetrag : 0),
-    0
-  );
   const waehrung = invoices.find((invoice) => invoice.waehrung)?.waehrung;
 
   rows.push({
     Rechnungsnummer: "Gesamtsumme",
-    Betrag: summe,
+    Brutto: sumField(invoices, "rechnungsbetrag"),
+    Netto: sumField(invoices, "nettobetrag"),
+    Steuer: sumField(invoices, "steuerbetrag"),
     Währung: waehrung && waehrung !== "UNKNOWN" ? waehrung : "EUR",
     Dateiname: "",
     Upload: "",
@@ -43,6 +55,8 @@ export function exportBauvorhabenExcel(bauvorhaben, invoices) {
   const worksheet = XLSX.utils.json_to_sheet(rows);
   worksheet["!cols"] = [
     { wch: 22 },
+    { wch: 14 },
+    { wch: 14 },
     { wch: 14 },
     { wch: 10 },
     { wch: 36 },

@@ -84,6 +84,34 @@ _BETRAG_LABEL_PARTS = [
 
 _BETRAG_LABEL_RES = [re.compile(part, re.IGNORECASE) for part in _BETRAG_LABEL_PARTS]
 
+# Netto / Steuer – eigene Labels, damit sie nicht den Brutto-Endbetrag überschreiben.
+_NETTO_LABEL_PARTS = [
+    "Nettobetrag",
+    "Nettosumme",
+    "Nettowert",
+    r"Netto\s*gesamt",
+    r"Summe\s*netto",
+    r"Zwischensumme\s*netto",
+    r"Net\s*amount",
+    r"Net\s*total",
+    r"Subtotal",
+    r"\bNetto\b",
+]
+
+_STEUER_LABEL_PARTS = [
+    "Steuerbetrag",
+    "Mehrwertsteuer",
+    "Umsatzsteuer",
+    r"MwSt\.?(?:\s*\d+[.,]?\d*\s*%)?",
+    r"\bUSt\.?(?:\s*\d+[.,]?\d*\s*%)?",
+    r"VAT(?:\s*\d+[.,]?\d*\s*%)?",
+    r"Tax\s*amount",
+    r"\bSteuer\b",
+]
+
+_NETTO_LABEL_RES = [re.compile(part, re.IGNORECASE) for part in _NETTO_LABEL_PARTS]
+_STEUER_LABEL_RES = [re.compile(part, re.IGNORECASE) for part in _STEUER_LABEL_PARTS]
+
 # Betrags-Token: vollständige Dezimalzahl bevorzugen; kein abgeschnittenes
 # "24" aus "24,15" und kein Datum "02.09.2026".
 _AMOUNT_TOKEN = (
@@ -130,6 +158,8 @@ class ExtractionResult:
     waehrung: str
     konfidenz: float
     hinweise: str | None
+    nettobetrag: float | None = None
+    steuerbetrag: float | None = None
 
 
 def parse_german_number(raw: str, force_german: bool = False) -> float:
@@ -214,19 +244,23 @@ def _is_skonto_zahlbetrag_context(label: str, after_slice: str) -> bool:
     return bool(re.search(r"skonto", window, re.IGNORECASE))
 
 
+def _amount_after_label(text: str, match: re.Match[str]) -> float | None:
+    after = text[match.end() : match.end() + _AMOUNT_SEARCH_WINDOW]
+    if _is_skonto_zahlbetrag_context(match.group(0), after):
+        return None
+    amount_match = _AMOUNT_AFTER_RE.search(after)
+    if not amount_match:
+        return None
+    try:
+        return parse_german_number(amount_match.group(1))
+    except ValueError:
+        return None
+
+
 def _extract_betrag(text: str) -> tuple[float | None, str]:
     for label_re in _BETRAG_LABEL_RES:
         for match in label_re.finditer(text):
-            after = text[match.end() : match.end() + _AMOUNT_SEARCH_WINDOW]
-            if _is_skonto_zahlbetrag_context(match.group(0), after):
-                continue
-            amount_match = _AMOUNT_AFTER_RE.search(after)
-            if not amount_match:
-                continue
-            try:
-                betrag = parse_german_number(amount_match.group(1))
-            except ValueError:
-                continue
+            betrag = _amount_after_label(text, match)
             if betrag is not None:
                 context = text[max(0, match.start() - 30) : match.end() + 50]
                 return betrag, _detect_currency(context)
@@ -245,9 +279,42 @@ def _extract_betrag(text: str) -> tuple[float | None, str]:
     return None, "EUR"
 
 
+def _extract_labeled_betrag(text: str, label_res: list[re.Pattern[str]]) -> float | None:
+    for label_re in label_res:
+        for match in label_re.finditer(text):
+            betrag = _amount_after_label(text, match)
+            if betrag is not None:
+                return betrag
+    return None
+
+
+def derive_missing_amounts(
+    brutto: float | None,
+    netto: float | None,
+    steuer: float | None,
+) -> tuple[float | None, float | None]:
+    """Ergänzt Netto oder Steuer aus Brutto, wenn genau eines fehlt."""
+    if brutto is None:
+        return netto, steuer
+    if netto is not None and steuer is None:
+        derived = round(brutto - netto, 2)
+        if derived >= 0:
+            return netto, derived
+    if steuer is not None and netto is None:
+        derived = round(brutto - steuer, 2)
+        if derived >= 0:
+            return derived, steuer
+    return netto, steuer
+
+
 def extract_invoice_data(text: str) -> ExtractionResult:
     rechnungsnummer = _extract_rechnungsnummer(text)
     rechnungsbetrag, waehrung = _extract_betrag(text)
+    nettobetrag = _extract_labeled_betrag(text, _NETTO_LABEL_RES)
+    steuerbetrag = _extract_labeled_betrag(text, _STEUER_LABEL_RES)
+    nettobetrag, steuerbetrag = derive_missing_amounts(
+        rechnungsbetrag, nettobetrag, steuerbetrag
+    )
 
     hinweise: list[str] = []
     if rechnungsnummer is None:
@@ -268,4 +335,6 @@ def extract_invoice_data(text: str) -> ExtractionResult:
         waehrung=waehrung,
         konfidenz=konfidenz,
         hinweise="; ".join(hinweise) if hinweise else None,
+        nettobetrag=nettobetrag,
+        steuerbetrag=steuerbetrag,
     )
