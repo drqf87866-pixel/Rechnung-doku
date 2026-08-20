@@ -99,6 +99,11 @@ def extract_invoice_data_via_llm(pdf_bytes: bytes) -> ExtractionResult:
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=LlmInvoiceFields,
+                # Structured Output braucht kein AFC; ohne disable=True loggt das
+                # SDK eine Warnung (AFC ist im Default aktiv, auch ohne Tools).
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True
+                ),
             ),
         )
     except Exception as exc:
