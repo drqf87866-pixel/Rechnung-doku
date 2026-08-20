@@ -1,6 +1,6 @@
 # Doku-Agent
 
-Rechnungsplattform: PDF-Rechnungen hochladen, einem Bauvorhaben (Projektname) zuordnen und Rechnungsnummer sowie Rechnungsbetrag automatisch per Regex-Heuristik extrahieren. Datenhaltung über SQLAlchemy (lokal SQLite, produktiv Supabase Postgres), PDF-Text-Extraktion per PyMuPDF, PDF-Ablage lokal oder in Supabase Storage.
+Rechnungsplattform: PDF-Rechnungen hochladen, einem Bauvorhaben (Projektname) zuordnen und Rechnungsnummer sowie Rechnungsbetrag automatisch extrahieren. Digitale PDFs werden per PyMuPDF direkt gelesen, gescannte PDFs (ohne Textschicht) per OCR (RapidOCR/ONNX), anschließend Regex-Heuristik. Datenhaltung über SQLAlchemy (lokal SQLite, produktiv Supabase Postgres), PDF-Ablage lokal oder in Supabase Storage.
 
 ## Struktur
 
@@ -53,6 +53,18 @@ Vite läuft auf http://localhost:5173, ein Proxy leitet `/api` an http://localho
 ```powershell
 .venv\Scripts\python -m pytest tests/ -v
 ```
+
+## Scan-PDFs (OCR)
+
+PDFs ohne Textschicht (Scans) werden automatisch per OCR gelesen (RapidOCR + ONNX Runtime, pip-installierbar, keine System-Binaries nötig). Die OCR-Modelle liegen der `rapidocr`-Installation bei und werden beim ersten Start geladen (einmalig ~1 s). Die Textextraktion dauert dadurch bei Scan-PDFs einige Sekunden pro Seite; digitale PDFs bleiben unverändert schnell.
+
+**Render-Hinweis:** `rapidocr` zieht `opencv-python` nach, das auf Linux `libGL` benötigt. Build Command daher erweitern:
+
+```bash
+apt-get update && apt-get install -y libgl1 libglib2.0-0 && pip install -r requirements.txt
+```
+
+Alternativ (ohne System-Pakete) nach dem Install von `opencv-python` auf `opencv-python-headless` wechseln.
 
 ## Deployment
 
