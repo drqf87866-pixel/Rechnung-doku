@@ -157,6 +157,21 @@ def test_llm_verwirft_kundennummer_als_rechnungsnummer():
     assert "Keine Rechnungsnummer gefunden" in (result.hinweise or "")
 
 
+def test_llm_verwirft_teil_der_mehrteiligen_kundennummer():
+    from app.services.llm_extractor import _result_from_fields
+
+    result = _result_from_fields(
+        LlmInvoiceFields(
+            kundennummer="926 L02634",
+            rechnungsnummer="L02634",
+            rechnungsbetrag=267.19,
+            waehrung="EUR",
+        )
+    )
+    assert result.rechnungsnummer is None
+    assert result.rechnungsbetrag == 267.19
+
+
 def test_llm_behaelt_echte_rechnungsnummer_neben_kundennummer():
     from app.services.llm_extractor import _result_from_fields
 
@@ -170,4 +185,19 @@ def test_llm_behaelt_echte_rechnungsnummer_neben_kundennummer():
     )
     assert result.rechnungsnummer == "91016032"
     assert result.rechnungsbetrag == 24.15
+    assert result.konfidenz == 0.9
+
+
+def test_llm_bogdanski_rechn_nr_neben_mehrteiliger_kd_nr():
+    from app.services.llm_extractor import _result_from_fields
+
+    result = _result_from_fields(
+        LlmInvoiceFields(
+            kundennummer="926 L02634",
+            rechnungsnummer="878234",
+            rechnungsbetrag=267.19,
+            waehrung="EUR",
+        )
+    )
+    assert result.rechnungsnummer == "878234"
     assert result.konfidenz == 0.9

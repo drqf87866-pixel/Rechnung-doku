@@ -15,10 +15,13 @@ logger = logging.getLogger(__name__)
 _PROMPT = (
     "Extrahiere die Rechnungsdaten aus diesem PDF-Dokument.\n"
     "- kundennummer: nur die Kundennummer / Debitorennummer / Kd-Nr. "
-    "(falls vorhanden). Nicht die Rechnungsnummer.\n"
+    "(falls vorhanden). Nicht die Rechnungsnummer. "
+    "Mehrteilige KD-Nr. (z. B. '926 L02634') vollständig hier ablegen.\n"
     "- rechnungsnummer: nur die Rechnungsnummer (auch Rechn.Nr., Invoice No., "
     "Rechnung/Nummer). "
     "Niemals Kundennummer, Debitor, Auftragsnummer, Lieferschein oder Projekt. "
+    "Bei Tabellenkopf 'KD-Nr. Rechn.Nr. Datum Blatt' ist Rechn.Nr. die Spalte "
+    "direkt vor dem Datum (nicht Teile der KD-Nr.). "
     "Wenn beide Nummern auf dem Beleg stehen, müssen sie in getrennte Felder.\n"
     "- rechnungsbetrag: der Endbetrag bzw. Zahlbetrag ohne Abzug / Bruttobetrag "
     "als Dezimalzahl (z. B. 1234.56). Nicht Positionssummen, Netto ohne Steuer "
@@ -92,13 +95,11 @@ def _normalize_waehrung(value: str | None) -> str:
 def _result_from_fields(fields: LlmInvoiceFields, hinweise_prefix: str | None = None) -> ExtractionResult:
     rechnungsnummer = _clean_rechnungsnummer(fields.rechnungsnummer)
     kundennummer = _clean_rechnungsnummer(fields.kundennummer)
-    # Falls das Modell beide verwechselt hat: Kundennummer nicht als Rechnung übernehmen.
-    if (
-        rechnungsnummer is not None
-        and kundennummer is not None
-        and rechnungsnummer == kundennummer
-    ):
-        rechnungsnummer = None
+    # Verwechslung / Teil der mehrteiligen KD-Nr. nicht als Rechnung übernehmen.
+    if rechnungsnummer is not None and kundennummer is not None:
+        kunden_parts = set(kundennummer.split())
+        if rechnungsnummer == kundennummer or rechnungsnummer in kunden_parts:
+            rechnungsnummer = None
 
     rechnungsbetrag = fields.rechnungsbetrag
     nettobetrag, steuerbetrag = derive_missing_amounts(

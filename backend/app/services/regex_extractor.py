@@ -59,12 +59,8 @@ RECHNUNG_DATUM_SEITE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Tabellenkopf "KD-Nr. Rechn.Nr. Datum Blatt" → zweite Spalte = Rechnungsnummer.
-RECHN_NR_TABELLE_RE = re.compile(
-    r"KD-Nr\.\s+Rechn\.?\s*Nr\.?\s+Datum\s+Blatt\s*\n\s*"
-    r"\S+\s+(\S+)",
-    re.IGNORECASE,
-)
+# Datum in Tabellenzeilen (tt.mm.jjjj) – Anker für Spalten KD-Nr. / Rechn.Nr.
+_DATE_TOKEN_RE = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{2,4}$")
 
 CODE_RECHNUNGSNUMMER_RE = re.compile(r"\b(?:RG|RE|INV|RCH)[-\s]?\d{3,}\b", re.IGNORECASE)
 
@@ -230,14 +226,94 @@ def _clean_rechnungsnummer(value: str) -> str | None:
     return value
 
 
-def _line_value_tokens(line: str) -> list[str]:
-    """Werte einer Datenzeile (Leerzeichen oder '/' getrennt), ohne reine Labels."""
+def _is_date_token(token: str) -> bool:
+    return bool(_DATE_TOKEN_RE.fullmatch(token.strip()))
+
+
+def _parse_header_line_tokens(line: str) -> list[str]:
     tokens: list[str] = []
     for raw in _VALUE_TOKEN_RE.findall(line):
+        if _is_date_token(raw):
+            tokens.append(raw)
+            continue
         cleaned = _clean_rechnungsnummer(raw)
         if cleaned:
             tokens.append(cleaned)
     return tokens
+
+
+def _collect_header_value_tokens(
+    lines: list[str], start_index: int
+) -> tuple[list[str], int | None]:
+    """Sammelt ID-Werte (+ optional Datum) nach Spaltenkopf, nicht Betragszeilen."""
+    content_lines: list[str] = []
+    for candidate in lines[start_index : start_index + 4]:
+        if candidate.strip():
+            content_lines.append(candidate)
+        if len(content_lines) >= 2:
+            break
+    if not content_lines:
+        return [], None
+
+    first = _parse_header_line_tokens(content_lines[0])
+    for index, token in enumerate(first):
+        if _is_date_token(token):
+            return first, index
+
+    tokens = list(first)
+    # Zweite Zeile nur mitziehen, wenn sie mit dem Datum beginnt (Split-Layout).
+    if len(content_lines) > 1:
+        second = _parse_header_line_tokens(content_lines[1])
+        if second and _is_date_token(second[0]):
+            date_at = len(tokens)
+            tokens.extend(second)
+            return tokens, date_at
+
+    return tokens, None
+
+
+def _rechnungsnummer_from_header_tokens(
+    tokens: list[str],
+    date_at: int | None,
+    kunden_first: bool,
+) -> str | None:
+    """
+    Bei Spalten KD-Nr. | Rechn.Nr. [| Datum | Blatt]:
+    Rechnungsnummer = Token direkt vor dem Datum, sonst letzte ID-Spalte
+    (Kundennummer kann mehrteilig sein, z. B. '926 L02634').
+    """
+    if date_at is not None and date_at >= 1:
+        return tokens[date_at - 1]
+
+    id_tokens = [token for token in tokens if not _is_date_token(token)]
+    if len(id_tokens) < 2:
+        return None
+    if kunden_first:
+        return id_tokens[-1]
+    return id_tokens[0]
+
+
+def _kundennummern_from_header_tokens(
+    tokens: list[str],
+    date_at: int | None,
+    kunden_first: bool,
+) -> set[str]:
+    found: set[str] = set()
+    if date_at is not None and date_at >= 1:
+        rechnung = tokens[date_at - 1]
+        for token in tokens[:date_at]:
+            if token != rechnung and not _is_date_token(token):
+                found.add(token)
+        return found
+
+    id_tokens = [token for token in tokens if not _is_date_token(token)]
+    if len(id_tokens) < 2:
+        return found
+    if kunden_first:
+        found.update(id_tokens[:-1])
+    else:
+        found.update(id_tokens[1:])
+    return found
 
 
 def _extract_from_kunden_rechnung_headers(text: str) -> str | None:
@@ -249,21 +325,12 @@ def _extract_from_kunden_rechnung_headers(text: str) -> str | None:
         if not kunden or not rechnung:
             continue
 
-        next_line = ""
-        for candidate in lines[index + 1 :]:
-            if candidate.strip():
-                next_line = candidate
-                break
-        if not next_line:
-            continue
-
-        values = _line_value_tokens(next_line)
-        if len(values) < 2:
-            continue
-
-        if kunden[0].start() < rechnung[0].start():
-            return values[1]
-        return values[0]
+        tokens, date_at = _collect_header_value_tokens(lines, index + 1)
+        value = _rechnungsnummer_from_header_tokens(
+            tokens, date_at, kunden_first=kunden[0].start() < rechnung[0].start()
+        )
+        if value:
+            return value
     return None
 
 
@@ -272,22 +339,18 @@ def _collect_kundennummern(text: str) -> set[str]:
     found: set[str] = set()
     lines = text.splitlines()
     for index, line in enumerate(lines):
-        # Header-Zeile mit beiden Labels: Werte der nächsten Zeile nach Spalte.
         kunden = list(KUNDEN_LABEL_RE.finditer(line))
         rechnung = list(LABEL_RECHNUNGSNUMMER_ONLY_RE.finditer(line))
         if kunden and rechnung and index + 1 < len(lines):
-            next_line = ""
-            for candidate in lines[index + 1 :]:
-                if candidate.strip():
-                    next_line = candidate
-                    break
-            values = _line_value_tokens(next_line) if next_line else []
-            if len(values) >= 2:
-                if kunden[0].start() < rechnung[0].start():
-                    found.add(values[0])
-                else:
-                    found.add(values[1])
-                continue
+            tokens, date_at = _collect_header_value_tokens(lines, index + 1)
+            found.update(
+                _kundennummern_from_header_tokens(
+                    tokens,
+                    date_at,
+                    kunden_first=kunden[0].start() < rechnung[0].start(),
+                )
+            )
+            continue
 
         for match in LABEL_KUNDENNUMMER_RE.finditer(line):
             value = _clean_rechnungsnummer(match.group(1))
@@ -304,7 +367,6 @@ def _extract_rechnungsnummer(text: str) -> str | None:
     for pattern in (
         RECHNUNG_NUMMER_BLOCK_RE,
         RECHNUNG_DATUM_SEITE_RE,
-        RECHN_NR_TABELLE_RE,
     ):
         match = pattern.search(text)
         if match:

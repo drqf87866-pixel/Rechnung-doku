@@ -180,7 +180,7 @@ def test_kdw_layout_kein_datumsbetrag():
 
 
 def test_bogdanski_tabellenkopf():
-    """KD-Nr. / Rechn.Nr. / Datum / Blatt → zweite Spalte + Gesamt."""
+    """KD-Nr. kann mehrteilig sein (926 L02634); Rechn.Nr. steht vor Datum."""
     text = (
         "R E C H N U N G\n"
         "KD-Nr. Rechn.Nr.   Datum    Blatt\n"
@@ -190,9 +190,23 @@ def test_bogdanski_tabellenkopf():
         "    Gesamt:      267,19 EUR\n"
     )
     result = extract_invoice_data(text)
-    assert result.rechnungsnummer == "L02634"
+    assert result.rechnungsnummer == "878234"
     assert result.rechnungsbetrag == 267.19
 
+
+def test_bogdanski_werte_in_einer_zeile():
+    """Wie im Scan: KD-Nr. '926 L02634', Rechn.Nr. '878234' vor Datum."""
+    text = (
+        "R E C H N U N G\n"
+        "Bei Schriftwechsel bitte angeben\n"
+        "KD-Nr. Rechn.Nr.    Datum        Blatt\n"
+        "926 L02634      878234   13.08.2026   1\n"
+        "    Gesamt:      267,19 EUR\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "878234"
+    assert result.rechnungsbetrag == 267.19
+    assert result.rechnungsnummer != "L02634"
 
 def test_trennscheibe_kein_rechnungsnummer_fehltreffer():
     text = (
