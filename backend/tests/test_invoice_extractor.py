@@ -49,7 +49,7 @@ def test_extract_from_pdf_scan_uses_llm(monkeypatch):
             rechnungsbetrag=30.83,
             waehrung="EUR",
             konfidenz=0.9,
-            hinweise="Scan-PDF per Gemini extrahiert",
+            hinweise="Per Gemini extrahiert",
         )
 
     monkeypatch.setattr(
@@ -60,6 +60,37 @@ def test_extract_from_pdf_scan_uses_llm(monkeypatch):
     result = extract_from_pdf(data)
     assert result.rechnungsnummer == "100984"
     assert result.rechnungsbetrag == 30.83
+
+
+def test_extract_from_pdf_incomplete_regex_falls_back_to_llm(monkeypatch):
+    """Digitale PDF mit Text, aber ohne erkennbare Nummer → Gemini-Fallback."""
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "Nur ein Betrag ohne Nummer\nGesamtbetrag: 99,90 EUR")
+    data = document.tobytes()
+    document.close()
+
+    called = {"llm": False}
+
+    def fake_llm(_pdf_bytes: bytes) -> ExtractionResult:
+        called["llm"] = True
+        return ExtractionResult(
+            rechnungsnummer="FALLBACK-1",
+            rechnungsbetrag=99.9,
+            waehrung="EUR",
+            konfidenz=0.9,
+            hinweise="Per Gemini extrahiert",
+        )
+
+    monkeypatch.setattr(
+        "app.services.invoice_extractor.extract_invoice_data_via_llm",
+        fake_llm,
+    )
+
+    result = extract_from_pdf(data)
+    assert called["llm"] is True
+    assert result.rechnungsnummer == "FALLBACK-1"
+    assert result.rechnungsbetrag == 99.9
 
 
 def test_llm_result_from_fields():

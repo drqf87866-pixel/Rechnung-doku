@@ -134,3 +134,73 @@ def test_waehrung_vor_betrag():
     text = "Rechnungsnummer: RE-4\nGesamt: € 45,00"
     result = extract_invoice_data(text)
     assert result.rechnungsbetrag == 45.0
+
+
+def test_dockenhudener_layout():
+    """Rechnung / Nummer / Wert + Endbetrag (Friedrich Lange)."""
+    text = (
+        "Rechnung\n"
+        "Nummer\n"
+        "91016032\n"
+        "Datum\n"
+        "17.08.2026\n"
+        "Kundennummer\n"
+        "1020558\n"
+        "Endbetrag\n"
+        "24,15\n"
+        "Bis zum 27.08.2026 erhalten Sie 2,000  % Skonto\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "91016032"
+    assert result.rechnungsbetrag == 24.15
+    assert result.konfidenz == 1.0
+
+
+def test_kdw_layout_kein_datumsbetrag():
+    """Endbetrag vor Zahlbetrag-Skonto; Datum 02.09.2026 nicht als Betrag."""
+    text = (
+        "Aktion MA Trennscheibe INOX 125x1,0mm\n"
+        "Endbetrag\n"
+        "       30,29  EUR\n"
+        "Zahlbetrag bis 02.09.2026 3,000 % Skonto\n"
+        "               29,40  EUR\n"
+        "Zahlbetrag bis 18.09.2026 ohne Abzug\n"
+        "               30,29  EUR\n"
+        "Rechnung\n"
+        "Datum\n"
+        "Seite\n"
+        "407614216\n"
+        "19.08.2026\n"
+        "1  /  1\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "407614216"
+    assert result.rechnungsbetrag == 30.29
+    assert result.rechnungsbetrag != 2.09
+
+
+def test_bogdanski_tabellenkopf():
+    """KD-Nr. / Rechn.Nr. / Datum / Blatt → zweite Spalte + Gesamt."""
+    text = (
+        "R E C H N U N G\n"
+        "KD-Nr. Rechn.Nr.   Datum    Blatt\n"
+        "926 L02634   878234\n"
+        "13.08.2026  1\n"
+        "AUFTR.NR. : Scholtz\n"
+        "    Gesamt:      267,19 EUR\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "L02634"
+    assert result.rechnungsbetrag == 267.19
+
+
+def test_trennscheibe_kein_rechnungsnummer_fehltreffer():
+    text = (
+        "Makita Trennscheibe INOX 125x1,0 mm\n"
+        "Zur Position gehören die Unterpositionen\n"
+        "Endbetrag\n"
+        "30,29 EUR\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer is None
+    assert result.rechnungsbetrag == 30.29

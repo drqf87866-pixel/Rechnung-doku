@@ -12,17 +12,31 @@ from app.services.regex_extractor import ExtractionResult
 
 logger = logging.getLogger(__name__)
 
-_PROMPT = "Extrahiere die Rechnungsdaten aus diesem PDF-Dokument."
+_PROMPT = (
+    "Extrahiere die Rechnungsdaten aus diesem PDF-Dokument.\n"
+    "- rechnungsnummer: die Rechnungsnummer (auch Rechn.Nr., Invoice No.). "
+    "Nicht Kundennummer, Debitor, Auftragsnummer, Lieferschein oder Projekt.\n"
+    "- rechnungsbetrag: der Endbetrag bzw. Zahlbetrag ohne Abzug / Gesamtbetrag "
+    "als Dezimalzahl (z. B. 1234.56). Nicht Positionssummen, Netto ohne Steuer "
+    "oder Skonto-Zwischensummen.\n"
+    "- waehrung: EUR, CHF, USD oder GBP."
+)
 
 
 class LlmInvoiceFields(BaseModel):
     rechnungsnummer: str | None = Field(
         default=None,
-        description="Rechnungsnummer oder Invoice number",
+        description=(
+            "Rechnungsnummer / Invoice number / Rechn.Nr. "
+            "Nicht Kundennummer, Auftragsnummer oder Lieferscheinnummer."
+        ),
     )
     rechnungsbetrag: float | None = Field(
         default=None,
-        description="Gesamtbetrag oder Zahlbetrag als Dezimalzahl",
+        description=(
+            "Endbetrag oder Zahlbetrag ohne Abzug als Dezimalzahl "
+            "(deutsche 1.234,56 → 1234.56). Kein Skonto-Betrag, keine Position."
+        ),
     )
     waehrung: str = Field(
         default="EUR",
@@ -85,7 +99,7 @@ def extract_invoice_data_via_llm(pdf_bytes: bytes) -> ExtractionResult:
             rechnungsbetrag=None,
             waehrung="EUR",
             konfidenz=0.0,
-            hinweise="Scan-PDF erkannt, aber GEMINI_API_KEY ist nicht konfiguriert",
+            hinweise="Gemini-Extraktion nötig, aber GEMINI_API_KEY ist nicht konfiguriert",
         )
 
     client = genai.Client(api_key=settings.gemini_api_key)
@@ -126,4 +140,4 @@ def extract_invoice_data_via_llm(pdf_bytes: bytes) -> ExtractionResult:
             hinweise="LLM lieferte keine gültigen Rechnungsdaten",
         )
 
-    return _result_from_fields(parsed, hinweise_prefix="Scan-PDF per Gemini extrahiert")
+    return _result_from_fields(parsed, hinweise_prefix="Per Gemini extrahiert")
