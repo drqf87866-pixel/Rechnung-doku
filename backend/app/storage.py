@@ -134,7 +134,9 @@ class SupabaseStorage(StorageBackend):
         bucket = next((b for b in buckets if b.name == self.bucket_name), None)
         if bucket is None:
             try:
-                client.storage.create_bucket(self.bucket_name, {"public": False})
+                client.storage.create_bucket(
+                    self.bucket_name, options={"public": False}
+                )
             except Exception as exc:
                 raise StorageError(
                     f"Bucket '{self.bucket_name}' konnte nicht angelegt werden: {exc}"
