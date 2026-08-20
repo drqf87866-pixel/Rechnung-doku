@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     supabase_storage_bucket: str = "invoices"
     # Gemini Flash für Scan-PDFs ohne Textschicht (Hybrid-Extraktion).
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-3.6-flash"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

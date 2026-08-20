@@ -63,7 +63,7 @@ Lokal in `backend/.env`:
 ```env
 GEMINI_API_KEY=dein-api-key
 # optional:
-# GEMINI_MODEL=gemini-2.0-flash
+# GEMINI_MODEL=gemini-3.6-flash
 ```
 
 Auf Render als Secret `GEMINI_API_KEY` setzen. Der Free Tier von Gemini Flash reicht für typische Upload-Volumina (ca. 500–1.500 Anfragen/Tag).
@@ -114,7 +114,7 @@ Die Tabellen werden beim ersten Start automatisch von FastAPI angelegt (`Base.me
   - `CORS_ORIGINS` (z.B. `https://rechnung-doku.netlify.app,http://localhost:5173`)
   - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, optional `SUPABASE_STORAGE_BUCKET=invoices`
   - `GEMINI_API_KEY` (für Scan-PDF-Extraktion)
-  - optional `GEMINI_MODEL=gemini-2.0-flash`
+  - optional `GEMINI_MODEL=gemini-3.6-flash`
   - optional `UPLOAD_DIR=./uploads` (nur lokaler Fallback relevant)
 - **Upload-Persistenz:** Mit Supabase Storage überleben die PDFs jeden Redeploy und sind über alle Instanzen geteilt. Der lokale Fallback (`./uploads`) ist auf dem Free-Tier von Render ephemer – dort gehen hochgeladene PDFs bei jedem Restart/Deploy verloren.
 - Automatische Deployments: Repo auf GitHub, Render verbindet sich.
