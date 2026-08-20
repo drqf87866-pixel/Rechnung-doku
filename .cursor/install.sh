@@ -5,8 +5,10 @@ set -eo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# The base image ships python3.12 + pip but not the venv module.
-if ! python3 -m venv --help >/dev/null 2>&1; then
+# The base image ships python3.12 + pip but the venv module lacks ensurepip
+# until python3.12-venv is installed. Test ensurepip directly: `python3 -m venv
+# --help` succeeds even when the package (and ensurepip) is missing.
+if ! python3 -c 'import ensurepip' >/dev/null 2>&1; then
   sudo apt-get update -qq
   sudo apt-get install -y -qq python3.12-venv
 fi
