@@ -66,7 +66,7 @@ pip install -r requirements.txt && pip uninstall -y opencv-python && pip install
 
 Die headless-Variante braucht keine System-Pakete wie `libgl1`/`libglib2.0-0`.
 
-**Speicher (OCR):** Beim OCR-Rendering wird die Seitenkantenlänge per Zoom-Matrix auf `OCR_MAX_SIDE` (Standard `1200` px) begrenzt. Das verhindert Speicherspitzen bei Scanner-PDFs, deren Seitenbox in Punkten der Pixelgröße entspricht (z. B. 2480×3508 pt → `get_pixmap(dpi=300)` würde sonst eine ~10.000 px große Bitmap erzeugen). RapidOCR skaliert intern ohnehin auf max. 2000 px, sodass die Begrenzung kaum Qualität kostet. Für schärfere Crops bei kleinem Text auf größeren Instanzen `OCR_MAX_SIDE=1500` (oder höher) setzen.
+**Speicher (OCR):** Beim OCR-Rendering wird die Seitenkantenlänge per Zoom-Matrix auf `OCR_MAX_SIDE` (Standard `1000` px) begrenzt. Das verhindert Speicherspitzen bei Scanner-PDFs, deren Seitenbox in Punkten der Pixelgröße entspricht (z. B. 2480×3508 pt → `get_pixmap(dpi=300)` würde sonst eine ~10.000 px große Bitmap erzeugen). RapidOCR skaliert intern ohnehin auf max. 2000 px, sodass die Begrenzung kaum Qualität kostet. Für schärfere Crops bei kleinem Text auf größeren Instanzen `OCR_MAX_SIDE=1500` (oder höher) setzen. Der OCR-Pfad loggt den RSS-Verbrauch („OCR gestartet/abgeschlossen (RSS … MB)“), um den Speicherbedarf im Render-Log zu beobachten.
 
 ## Deployment
 

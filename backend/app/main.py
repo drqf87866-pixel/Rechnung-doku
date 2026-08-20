@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,6 +10,8 @@ from app import storage
 from app.config import settings
 from app.database import Base, engine
 from app.routers import invoices
+
+logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
