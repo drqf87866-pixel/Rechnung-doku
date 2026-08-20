@@ -17,6 +17,8 @@ class Invoice(Base):
     bauvorhaben: Mapped[str] = mapped_column(String, nullable=False, index=True)
     rechnungsnummer: Mapped[str | None] = mapped_column(String, nullable=True)
     rechnungsbetrag: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    nettobetrag: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    steuerbetrag: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     waehrung: Mapped[str] = mapped_column(String, nullable=False, default="EUR")
     konfidenz: Mapped[float | None] = mapped_column(Float, nullable=True)
     hinweise: Mapped[str | None] = mapped_column(String, nullable=True)

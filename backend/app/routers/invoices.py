@@ -75,12 +75,16 @@ def upload_invoice(
     hinweise: list[str] = []
     extracted_nummer = result.rechnungsnummer
     extracted_betrag = result.rechnungsbetrag
+    extracted_netto = result.nettobetrag
+    extracted_steuer = result.steuerbetrag
     waehrung = result.waehrung
     if result.hinweise:
         hinweise.append(result.hinweise)
 
     final_nummer = extracted_nummer
     final_betrag = extracted_betrag
+    final_netto = extracted_netto
+    final_steuer = extracted_steuer
     manual_override = False
 
     if rechnungsnummer is not None and rechnungsnummer.strip():
@@ -109,6 +113,8 @@ def upload_invoice(
         bauvorhaben=bauvorhaben,
         rechnungsnummer=final_nummer,
         rechnungsbetrag=final_betrag,
+        nettobetrag=final_netto,
+        steuerbetrag=final_steuer,
         waehrung=waehrung,
         konfidenz=konfidenz,
         hinweise="; ".join(hinweise) if hinweise else None,

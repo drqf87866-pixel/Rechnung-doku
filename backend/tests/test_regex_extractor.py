@@ -204,3 +204,49 @@ def test_trennscheibe_kein_rechnungsnummer_fehltreffer():
     result = extract_invoice_data(text)
     assert result.rechnungsnummer is None
     assert result.rechnungsbetrag == 30.29
+
+
+def test_netto_und_steuer_explizit():
+    text = (
+        "Rechnungsnummer: RE-2024-100\n"
+        "Nettobetrag: 100,00 EUR\n"
+        "MwSt. 19%: 19,00 EUR\n"
+        "Bruttobetrag: 119,00 EUR\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "RE-2024-100"
+    assert result.rechnungsbetrag == 119.0
+    assert result.nettobetrag == 100.0
+    assert result.steuerbetrag == 19.0
+
+
+def test_steuer_aus_brutto_und_netto_abgeleitet():
+    text = (
+        "Rechnungsnummer: RE-50\n"
+        "Nettobetrag: 1.000,00 EUR\n"
+        "Gesamtbetrag: 1.190,00 EUR\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsbetrag == 1190.0
+    assert result.nettobetrag == 1000.0
+    assert result.steuerbetrag == 190.0
+
+
+def test_netto_aus_brutto_und_steuer_abgeleitet():
+    text = (
+        "Rechnungsnummer: RE-51\n"
+        "USt. 19%: 38,00 EUR\n"
+        "Rechnungsbetrag: 238,00 EUR\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsbetrag == 238.0
+    assert result.steuerbetrag == 38.0
+    assert result.nettobetrag == 200.0
+
+
+def test_ohne_netto_steuer_bleiben_leer():
+    text = "Rechnungsnummer: RE-52\nRechnungsbetrag: 50,00 EUR"
+    result = extract_invoice_data(text)
+    assert result.rechnungsbetrag == 50.0
+    assert result.nettobetrag is None
+    assert result.steuerbetrag is None

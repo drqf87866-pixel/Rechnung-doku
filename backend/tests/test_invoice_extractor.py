@@ -105,4 +105,37 @@ def test_llm_result_from_fields():
     )
     assert result.rechnungsnummer == "RE-99"
     assert result.rechnungsbetrag == 42.5
+    assert result.nettobetrag is None
+    assert result.steuerbetrag is None
     assert result.konfidenz == 0.9
+
+
+def test_llm_result_from_fields_with_netto_steuer():
+    from app.services.llm_extractor import _result_from_fields
+
+    result = _result_from_fields(
+        LlmInvoiceFields(
+            rechnungsnummer="RE-100",
+            rechnungsbetrag=119.0,
+            nettobetrag=100.0,
+            steuerbetrag=19.0,
+            waehrung="EUR",
+        )
+    )
+    assert result.rechnungsbetrag == 119.0
+    assert result.nettobetrag == 100.0
+    assert result.steuerbetrag == 19.0
+
+
+def test_llm_result_derives_steuer():
+    from app.services.llm_extractor import _result_from_fields
+
+    result = _result_from_fields(
+        LlmInvoiceFields(
+            rechnungsnummer="RE-101",
+            rechnungsbetrag=119.0,
+            nettobetrag=100.0,
+            waehrung="EUR",
+        )
+    )
+    assert result.steuerbetrag == 19.0

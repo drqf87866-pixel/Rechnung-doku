@@ -20,6 +20,19 @@ function parseBetrag(value) {
 }
 
 /**
+ * Summiert ein Betragsfeld über alle Rechnungen.
+ * @param {Object[]} invoices
+ * @param {string} field
+ * @returns {number}
+ */
+function sumField(invoices, field) {
+  return invoices.reduce(
+    (total, invoice) => total + (invoice[field] != null ? invoice[field] : 0),
+    0
+  );
+}
+
+/**
  * Rechnungstabelle mit Inline-Bearbeitung, Download und Löschen.
  *
  * @param {Object} props
@@ -96,7 +109,9 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
           <thead>
             <tr>
               <th>Rechnungsnummer</th>
-              <th>Betrag</th>
+              <th>Brutto</th>
+              <th>Netto</th>
+              <th>Steuer</th>
               <th>Dateiname</th>
               <th>Konfidenz</th>
               <th>Upload</th>
@@ -127,12 +142,14 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
                         className="input"
                         value={editBetrag}
                         onChange={(event) => setEditBetrag(event.target.value)}
-                        aria-label="Rechnungsbetrag"
+                        aria-label="Bruttobetrag"
                       />
                     ) : (
                       formatBetrag(invoice.rechnungsbetrag, invoice.waehrung)
                     )}
                   </td>
+                  <td>{formatBetrag(invoice.nettobetrag, invoice.waehrung)}</td>
+                  <td>{formatBetrag(invoice.steuerbetrag, invoice.waehrung)}</td>
                   <td>{invoice.filename}</td>
                   <td>
                     <span className={`badge badge-${konfidenz.level}`}>
@@ -192,19 +209,9 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
           <tfoot>
             <tr>
               <th>Gesamtsumme</th>
-              <th>
-                {formatBetrag(
-                  invoices.reduce(
-                    (total, invoice) =>
-                      total +
-                      (invoice.rechnungsbetrag != null
-                        ? invoice.rechnungsbetrag
-                        : 0),
-                    0
-                  ),
-                  "EUR"
-                )}
-              </th>
+              <th>{formatBetrag(sumField(invoices, "rechnungsbetrag"), "EUR")}</th>
+              <th>{formatBetrag(sumField(invoices, "nettobetrag"), "EUR")}</th>
+              <th>{formatBetrag(sumField(invoices, "steuerbetrag"), "EUR")}</th>
               <th colSpan={4} />
             </tr>
           </tfoot>
