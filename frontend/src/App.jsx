@@ -1,32 +1,32 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   listInvoices,
   listBauvorhaben,
   updateInvoice,
   deleteInvoice,
 } from "./api.js";
+import { groupByBauvorhaben } from "./groupBauvorhaben.js";
 import UploadForm from "./components/UploadForm.jsx";
-import InvoiceList from "./components/InvoiceList.jsx";
+import BauvorhabenGrid from "./components/BauvorhabenGrid.jsx";
+import BauvorhabenDetail from "./components/BauvorhabenDetail.jsx";
 
 /**
  * Wurzelkomponente der Rechnungsplattform.
- * Verwaltet Rechnungsliste, Bauvorhaben-Filter und API-Fehler und
- * lädt die Daten bei Mount sowie nach Upload/Delete/Update neu.
+ * Übersicht: Kacheln je Bauvorhaben. Klick öffnet die Detailseite.
  */
 export default function App() {
   const [invoices, setInvoices] = useState([]);
   const [bauvorhabenListe, setBauvorhabenListe] = useState([]);
-  const [filter, setFilter] = useState("");
+  const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Lädt Rechnungen (gefiltert) und Bauvorhaben parallel.
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const [inv, bauvorhaben] = await Promise.all([
-        listInvoices(filter || undefined),
+        listInvoices(),
         listBauvorhaben(),
       ]);
       setInvoices(inv);
@@ -36,24 +36,20 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, []);
 
-  // Beim Mount sowie bei Filterwechsel neu laden.
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  function handleFilterChange(value) {
-    setFilter(value);
-  }
+  const groups = useMemo(() => groupByBauvorhaben(invoices), [invoices]);
+  const selectedGroup = groups.find((group) => group.name === selected);
 
-  // PATCH anwenden und anschließend Liste aktualisieren.
   async function handleUpdate(id, patch) {
     await updateInvoice(id, patch);
     await loadData();
   }
 
-  // Löschen per API und Liste aktualisieren.
   async function handleDelete(invoice) {
     try {
       await deleteInvoice(invoice.id);
@@ -63,8 +59,10 @@ export default function App() {
     }
   }
 
-  // Nach Upload: Liste + Bauvorhaben neu laden.
-  function handleUploaded() {
+  function handleUploaded(invoice) {
+    if (invoice?.bauvorhaben) {
+      setSelected(invoice.bauvorhaben);
+    }
     loadData();
   }
 
@@ -85,17 +83,27 @@ export default function App() {
       )}
 
       <main className="app-main">
-        <UploadForm onUploaded={handleUploaded} />
-        <InvoiceList
-          invoices={invoices}
+        <UploadForm
+          onUploaded={handleUploaded}
           bauvorhabenListe={bauvorhabenListe}
-          filter={filter}
-          onFilterChange={handleFilterChange}
-          onRefresh={loadData}
-          onDelete={handleDelete}
-          onUpdate={handleUpdate}
-          loading={loading}
         />
+        {selected ? (
+          <BauvorhabenDetail
+            name={selected}
+            invoices={selectedGroup?.invoices ?? []}
+            summe={selectedGroup?.summe ?? 0}
+            onBack={() => setSelected(null)}
+            onDelete={handleDelete}
+            onUpdate={handleUpdate}
+            loading={loading}
+          />
+        ) : (
+          <BauvorhabenGrid
+            groups={groups}
+            onSelect={setSelected}
+            loading={loading}
+          />
+        )}
       </main>
     </div>
   );

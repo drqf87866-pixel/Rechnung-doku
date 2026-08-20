@@ -3,14 +3,14 @@ import { uploadInvoice } from "../api.js";
 import { formatBetrag, konfidenzInfo } from "../format.js";
 
 /**
- * Upload-Formular für PDF-Rechnungen.
- * Lädt die Datei zusammen mit dem Bauvorhaben hoch und zeigt nach Erfolg
- * die vom Backend extrahierten Daten (Rechnungsnummer, Betrag, Konfidenz) an.
+ * Kompaktes Upload-Formular für PDF-Rechnungen.
+ * Pflichtfelder stehen in einer Zeile; optionale manuelle Angaben bleiben eingeklappt.
  *
  * @param {Object} props
- * @param {(invoice: Object) => void} props.onUploaded  Callback nach erfolgreichem Upload
+ * @param {(invoice: Object) => void} props.onUploaded
+ * @param {string[]} [props.bauvorhabenListe]  Vorschläge für das Bauvorhaben-Feld
  */
-export default function UploadForm({ onUploaded }) {
+export default function UploadForm({ onUploaded, bauvorhabenListe = [] }) {
   const [file, setFile] = useState(null);
   const [bauvorhaben, setBauvorhaben] = useState("");
   const [showManual, setShowManual] = useState(false);
@@ -62,11 +62,9 @@ export default function UploadForm({ onUploaded }) {
   const konfidenz = success ? konfidenzInfo(success.konfidenz) : null;
 
   return (
-    <section className="card">
-      <h2>Neue Rechnung hochladen</h2>
-
+    <section className="card upload-card">
       <form className="form" onSubmit={handleSubmit}>
-        <div className="form-grid">
+        <div className="upload-bar">
           <div className="form-field">
             <label htmlFor="file">PDF-Datei *</label>
             <input
@@ -82,14 +80,24 @@ export default function UploadForm({ onUploaded }) {
               id="bauvorhaben"
               type="text"
               className="input"
+              list="bauvorhaben-vorschlaege"
               placeholder="z. B. Neubau Musterstraße 12"
               value={bauvorhaben}
               onChange={(event) => setBauvorhaben(event.target.value)}
             />
+            <datalist id="bauvorhaben-vorschlaege">
+              {bauvorhabenListe.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+          </div>
+          <div className="upload-bar-actions">
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? "Wird hochgeladen …" : "Hochladen"}
+            </button>
           </div>
         </div>
 
-        {/* Collapsible-Bereich für optionale manuelle Angaben */}
         <button
           type="button"
           className="manual-toggle"
@@ -98,7 +106,7 @@ export default function UploadForm({ onUploaded }) {
         >
           {showManual
             ? "Manuelle Angaben ausblenden"
-            : "Manuelle Angaben (optional) anzeigen"}
+            : "Manuelle Angaben (optional)"}
         </button>
 
         {showManual && (
@@ -127,10 +135,6 @@ export default function UploadForm({ onUploaded }) {
             </div>
           </div>
         )}
-
-        <button type="submit" className="btn btn-primary" disabled={loading}>
-          {loading ? "Wird hochgeladen …" : "Rechnung hochladen"}
-        </button>
       </form>
 
       {error && (
@@ -143,9 +147,7 @@ export default function UploadForm({ onUploaded }) {
         <div className="success-box" role="status">
           <strong>Upload erfolgreich.</strong>
           <ul>
-            <li>
-              Rechnungsnummer: {success.rechnungsnummer ?? "–"}
-            </li>
+            <li>Rechnungsnummer: {success.rechnungsnummer ?? "–"}</li>
             <li>
               Rechnungsbetrag:{" "}
               {formatBetrag(success.rechnungsbetrag, success.waehrung)}
