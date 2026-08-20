@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./invoices.db"
     upload_dir: str = "./uploads"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # Supabase Storage (optional): Ohne URL/Key wird lokal in upload_dir gespeichert.
+    supabase_url: str | None = None
+    supabase_service_key: str | None = None
+    supabase_storage_bucket: str = "invoices"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

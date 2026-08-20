@@ -1,15 +1,16 @@
 # Doku-Agent
 
-Rechnungsplattform: PDF-Rechnungen hochladen, einem Bauvorhaben (Projektname) zuordnen und Rechnungsnummer sowie Rechnungsbetrag automatisch per Regex-Heuristik extrahieren. Datenhaltung über SQLite (SQLAlchemy 2.0), PDF-Text-Extraktion per PyMuPDF.
+Rechnungsplattform: PDF-Rechnungen hochladen, einem Bauvorhaben (Projektname) zuordnen und Rechnungsnummer sowie Rechnungsbetrag automatisch per Regex-Heuristik extrahieren. Datenhaltung über SQLAlchemy (lokal SQLite, produktiv Supabase Postgres), PDF-Text-Extraktion per PyMuPDF, PDF-Ablage lokal oder in Supabase Storage.
 
 ## Struktur
 
 ```
 doku-agent/
 ├── backend/          # FastAPI-Backend (Python)
-│   ├── app/          # Anwendungscode (Config, Modelle, Router, Services)
+│   ├── app/          # Anwendungscode (Config, Modelle, Router, Services, Storage)
+│   ├── scripts/      # Wartungsskripte (z. B. Storage-Migration)
 │   ├── tests/        # Unit-Tests
-│   └── uploads/      # Hochgeladene PDF-Dateien
+│   └── uploads/      # Hochgeladene PDF-Dateien (nur lokaler Fallback)
 └── frontend/         # Frontend (Vite)
 ```
 
@@ -55,11 +56,11 @@ Vite läuft auf http://localhost:5173, ein Proxy leitet `/api` an http://localho
 
 ## Deployment
 
-Backend auf Render (Python-Webservice), Datenbank als Supabase Postgres, Frontend auf Netlify.
+Backend auf Render (Python-Webservice), Datenbank als Supabase Postgres, PDF-Ablage in Supabase Storage, Frontend auf Netlify. Eine ausführliche Schritt-für-Schritt-Anleitung gibt es in der Session-Doku bzw. siehe Abschnitte unten.
 
-### Supabase (Datenbank)
+### Supabase (Datenbank + Storage)
 
-1. Supabase-Projekt anlegen → "Connect" → "Connection string" → **"Transaction pooler"** (Port 6543) kopieren.
+1. Supabase-Projekt anlegen → **Connect** → **Connection string** → **"Transaction pooler"** (Port 6543) kopieren.
 2. Die URL später als `DATABASE_URL` in Render eintragen, z.B.:
 
 ```bash
@@ -68,15 +69,36 @@ postgresql://postgres.<ref>:<passwort>@aws-0-<region>.pooler.supabase.com:6543/p
 
 Die Tabellen werden beim ersten Start automatisch von FastAPI angelegt (`Base.metadata.create_all`).
 
+3. **Storage für die PDFs (empfohlen):** In **Project Settings → API** den **service_role secret** kopieren (nur für das Backend, niemals ins Frontend!). Render-Variablen:
+   - `SUPABASE_URL` = `https://<projekt-ref>.supabase.co`
+   - `SUPABASE_SERVICE_KEY` = der service_role secret
+   - `SUPABASE_STORAGE_BUCKET` = `invoices` (Standard)
+
+   Der Bucket wird beim ersten Backend-Start **automatisch als privater Bucket** angelegt (`storage.ensure_bucket` in `app/main.py`). Existiert bereits ein Bucket mit diesem Namen, wird er beim Start auf **privat** gesetzt bzw. der Start bricht mit klarer Fehlermeldung ab, falls das nicht möglich ist. Optional manuell: **Storage → New bucket** → Name `invoices`, **Public bucket: aus**.
+
+   Ohne `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` speichert das Backend weiterhin lokal unter `UPLOAD_DIR` (Standard `./uploads`) – praktisch für die lokale Entwicklung.
+
+4. **Migration von Altbeständen (nur einmalig nötig):** Rechnungen, die vor dem Umstieg auf Supabase Storage hochgeladen wurden, liegen nur lokal in `./uploads`. Nach dem Umstieg verweist die DB zwar weiter auf die gleichen `stored_filename`s, die Datei ist dort aber nicht mehr. Das Skript `backend/scripts/migrate_local_uploads.py` lädt alle lokal noch vorhandenen PDFs in den Bucket (idempotent, Upload mit Upsert):
+
+```powershell
+.venv\Scripts\python scripts/migrate_local_uploads.py
+# optional: lokale Dateien nach erfolgreichem Upload löschen:
+.venv\Scripts\python scripts/migrate_local_uploads.py --delete-local
+```
+
 ### Render (Backend)
 
 - `render.yaml` wird als Blueprint unterstützt (New → Blueprint). Alternativ manuell: New Web Service → Root-Directory `backend` wählen (wenn das Repo an der Wurzel liegt), Build Command `pip install -r requirements.txt`, Start Command `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
-- Env-Variablen in Render setzen: `DATABASE_URL` (Supabase-Pooler-URL), `CORS_ORIGINS` (z.B. `https://doku-agent.netlify.app,http://localhost:5173`), optional `UPLOAD_DIR=./uploads`.
-- **WICHTIG (Upload-Persistenz):** Der Dateispeicher (`./uploads`) ist auf dem Free-Tier von Render ephemer – hochgeladene PDFs gehen bei jedem Restart/Deploy verloren und sind nicht über mehrere Instanzen geteilt. Empfohlene Folge-Optionen: Supabase Storage für die PDFs (Adapter in `app/storage.py` austauschbar) oder Render Persistent Disk (bezahltes Add-on).
+- Env-Variablen in Render setzen:
+  - `DATABASE_URL` (Supabase-Pooler-URL)
+  - `CORS_ORIGINS` (z.B. `https://rechnung-doku.netlify.app,http://localhost:5173`)
+  - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, optional `SUPABASE_STORAGE_BUCKET=invoices`
+  - optional `UPLOAD_DIR=./uploads` (nur lokaler Fallback relevant)
+- **Upload-Persistenz:** Mit Supabase Storage überleben die PDFs jeden Redeploy und sind über alle Instanzen geteilt. Der lokale Fallback (`./uploads`) ist auf dem Free-Tier von Render ephemer – dort gehen hochgeladene PDFs bei jedem Restart/Deploy verloren.
 - Automatische Deployments: Repo auf GitHub, Render verbindet sich.
 
 ### Netlify (Frontend)
 
 - `frontend/netlify.toml` liegt im Repo; beim "Import an existing project" Root-Directory `frontend` wählen (Build Command `npm run build`, Publish directory `dist` – ist durch netlify.toml gesetzt).
-- Env-Variable in Netlify setzen: `VITE_API_URL=https://<dein-render-backend>.onrender.com` (ohne trailing slash). Ohne diese Variable nutzt das Frontend lokal den `/api`-Proxy.
+- Env-Variable in Netlify setzen: `VITE_API_URL=https://<dein-render-backend>.onrender.com/api` (**mit `/api`**, ohne trailing slash). Ohne diese Variable nutzt das Frontend lokal den `/api`-Proxy.
 - CORS: Die Render-Domain (`https://<dein-render-backend>.onrender.com`) muss in der `CORS_ORIGINS`-Liste von Render die Netlify-Domain enthalten.

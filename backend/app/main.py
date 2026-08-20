@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import storage
 from app.config import settings
 from app.database import Base, engine
 from app.routers import invoices
@@ -13,6 +14,7 @@ from app.routers import invoices
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    storage.ensure_bucket()
     yield
 
 

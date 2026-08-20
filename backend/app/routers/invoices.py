@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from typing import Generator, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,6 +22,17 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+def _attachment_header(filename: str) -> str:
+    """Content-Disposition für den Download, mit RFC-5987-Kodierung für Umlaute.
+
+    Entspricht der Kodierung, die Starlette in FileResponse verwendet.
+    """
+    encoded = quote(filename)
+    if encoded != filename:
+        return f"attachment; filename*=utf-8''{encoded}"
+    return f'attachment; filename="{filename}"'
 
 
 def _is_pdf(file: UploadFile) -> bool:
@@ -52,7 +64,12 @@ def upload_invoice(
     if not bauvorhaben:
         raise HTTPException(status_code=400, detail="Bauvorhaben ist erforderlich")
 
-    stored_filename = storage.save_upload(file)
+    # save_upload liefert die Datei-Bytes mit zurück – so wird die Textextraktion
+    # ohne zweiten Netzwerk-Round-Trip und ohne Orphan-Risiko ausgeführt.
+    try:
+        stored_filename, data = storage.save_upload(file)
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     hinweise: list[str] = []
     extracted_nummer: Optional[str] = None
@@ -60,7 +77,7 @@ def upload_invoice(
     waehrung = "EUR"
 
     try:
-        text = extract_text(storage.get_path(stored_filename))
+        text = extract_text(data)
     except ValueError as exc:
         hinweise.append(str(exc))
     else:
@@ -156,19 +173,35 @@ def delete_invoice(invoice_id: int, db: Session = Depends(get_db)) -> None:
     invoice = _get_or_404(db, invoice_id)
     db.delete(invoice)
     db.commit()
+    # Fehler beim Storage-Löschen werden in storage.delete_file geloggt und
+    # schlucken nicht länger still – ein evtl. verbleibendes Orphan ist so
+    # in den Logs auffindbar.
     storage.delete_file(invoice.stored_filename)
 
 
 @router.get("/invoices/{invoice_id}/file")
-def get_invoice_file(invoice_id: int, db: Session = Depends(get_db)) -> FileResponse:
+def get_invoice_file(invoice_id: int, db: Session = Depends(get_db)) -> Response:
     invoice = _get_or_404(db, invoice_id)
-    path = storage.get_path(invoice.stored_filename)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="PDF-Datei nicht gefunden")
-    return FileResponse(
-        path,
+
+    # Lokaler Fallback: wie bisher streamen (Range-/Caching-Support).
+    local_path = storage.get_local_path(invoice.stored_filename)
+    if local_path is not None:
+        return FileResponse(
+            local_path,
+            media_type="application/pdf",
+            filename=invoice.filename,
+        )
+
+    try:
+        data = storage.read_bytes(invoice.stored_filename)
+    except storage.StorageNotFound as exc:
+        raise HTTPException(status_code=404, detail="PDF-Datei nicht gefunden") from exc
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return Response(
+        content=data,
         media_type="application/pdf",
-        filename=invoice.filename,
+        headers={"Content-Disposition": _attachment_header(invoice.filename)},
     )
 
 
