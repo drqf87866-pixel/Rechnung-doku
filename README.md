@@ -66,6 +66,8 @@ pip install -r requirements.txt && pip uninstall -y opencv-python && pip install
 
 Die headless-Variante braucht keine System-Pakete wie `libgl1`/`libglib2.0-0`.
 
+**Speicher (OCR):** Beim OCR-Rendering wird die Seitenkantenlänge per Zoom-Matrix auf `OCR_MAX_SIDE` (Standard `1200` px) begrenzt. Das verhindert Speicherspitzen bei Scanner-PDFs, deren Seitenbox in Punkten der Pixelgröße entspricht (z. B. 2480×3508 pt → `get_pixmap(dpi=300)` würde sonst eine ~10.000 px große Bitmap erzeugen). RapidOCR skaliert intern ohnehin auf max. 2000 px, sodass die Begrenzung kaum Qualität kostet. Für schärfere Crops bei kleinem Text auf größeren Instanzen `OCR_MAX_SIDE=1500` (oder höher) setzen.
+
 ## Deployment
 
 Backend auf Render (Python-Webservice), Datenbank als Supabase Postgres, PDF-Ablage in Supabase Storage, Frontend auf Netlify. Eine ausführliche Schritt-für-Schritt-Anleitung gibt es in der Session-Doku bzw. siehe Abschnitte unten.

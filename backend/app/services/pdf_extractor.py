@@ -5,7 +5,10 @@ from pathlib import Path
 
 import fitz
 
-_OCR_DPI = 300
+from app.config import settings
+
+_MAX_RENDER_SIDE = settings.ocr_max_side
+_DOTS_PER_POINT = 200.0 / 72.0
 _MIN_DIGITAL_TEXT = 20
 
 _engine = None
@@ -33,17 +36,28 @@ def _text_via_ocr(document: fitz.Document) -> str:
 
     Rendert jede Seite per PyMuPDF und liest den Text mit RapidOCR
     (pip-installierbar, keine System-Binaries nötig).
+
+    Die Rastergröße wird über eine Zoom-Matrix begrenzt statt über eine fixe
+    DPI: Scanner-PDFs setzen die Seitenbox oft in Punkten gleich der
+    Pixelgröße (z. B. 2480x3508 pt), wodurch get_pixmap(dpi=300) eine enorme
+    Bitmap liefert. RapidOCR skaliert intern ohnehin auf max. 2000 px, daher
+    kostet die Begrenzung keine Erkennungsqualität, spart aber massiv Speicher.
     """
     import numpy as np
-    from PIL import Image
 
     engine = _get_ocr_engine()
     pages: list[str] = []
 
     for page in document:
-        pix = page.get_pixmap(dpi=_OCR_DPI)
-        image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-        output = engine(np.array(image))
+        rect = page.rect
+        zoom = min(_DOTS_PER_POINT, _MAX_RENDER_SIDE / max(rect.width, rect.height))
+        pix = page.get_pixmap(
+            matrix=fitz.Matrix(zoom, zoom), colorspace=fitz.csRGB, alpha=False
+        )
+        image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+            pix.height, pix.width, pix.n
+        )
+        output = engine(image)
         if not output or not output.txts:
             continue
         # RapidOCR liefert die Zeilen bereits in Lesereihenfolge.

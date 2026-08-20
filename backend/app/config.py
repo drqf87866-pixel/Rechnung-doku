@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     supabase_url: str | None = None
     supabase_service_key: str | None = None
     supabase_storage_bucket: str = "invoices"
+    # Max. Seitenkantenlänge (px) fürs OCR-Rendering. Begrenzt die Bitmap-Größe
+    # (und damit den Speicher) bei Scanner-PDFs mit übergroßer Seitenbox.
+    # Werte <1200 sparen Speicher, 1500+ erhöhen die Erkennung kleiner Schrift.
+    ocr_max_side: int = 1200
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
