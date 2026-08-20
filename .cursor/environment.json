@@ -1,0 +1,20 @@
+{
+  "name": "Doku-Agent",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "backend",
+      "command": "cd backend && source .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      "description": "FastAPI backend (Doku-Agent) on http://localhost:8000 (interactive docs at /docs)."
+    },
+    {
+      "name": "frontend",
+      "command": "cd frontend && npm run dev",
+      "description": "Vite/React frontend on http://localhost:5173; proxies /api to the backend on port 8000."
+    }
+  ],
+  "ports": [
+    { "name": "backend", "port": 8000 },
+    { "name": "frontend", "port": 5173 }
+  ]
+}
