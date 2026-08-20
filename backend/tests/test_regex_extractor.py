@@ -64,7 +64,7 @@ def test_parse_german_number_tausender_ohne_dezimal():
 
 
 def test_ocr_scan_typisch():
-    # Text so, wie ihn RapidOCR aus dem Beispiel-Scan liefert.
+    # Text so, wie er aus einem typischen Scan stammen könnte (Regex-Pfad).
     text = (
         "Orthopädische Gemeinschaftspraxis\n"
         "Re. - Nr. 100984\n"

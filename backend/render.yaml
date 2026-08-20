@@ -1,12 +1,12 @@
 # Render Blueprint für den doku-agent-backend Webservice.
-# DATABASE_URL, CORS_ORIGINS, SUPABASE_URL und SUPABASE_SERVICE_KEY werden im
-# Render-Dashboard als Secrets gesetzt (sync: false).
+# DATABASE_URL, CORS_ORIGINS, SUPABASE_URL, SUPABASE_SERVICE_KEY und
+# GEMINI_API_KEY werden im Render-Dashboard als Secrets gesetzt (sync: false).
 services:
   - type: web
     name: doku-agent-backend
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && pip uninstall -y opencv-python && pip install opencv-python-headless
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
@@ -16,6 +16,8 @@ services:
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
         value: invoices

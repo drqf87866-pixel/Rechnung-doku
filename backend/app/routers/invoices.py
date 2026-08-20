@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas, storage
 from app.database import SessionLocal
-from app.services.pdf_extractor import extract_text
-from app.services.regex_extractor import extract_invoice_data, parse_german_number
+from app.services.invoice_extractor import extract_from_pdf
+from app.services.regex_extractor import parse_german_number
 
 router = APIRouter(prefix="/api")
 
@@ -71,22 +71,13 @@ def upload_invoice(
     except storage.StorageError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    result = extract_from_pdf(data)
     hinweise: list[str] = []
-    extracted_nummer: Optional[str] = None
-    extracted_betrag: Optional[float] = None
-    waehrung = "EUR"
-
-    try:
-        text = extract_text(data)
-    except ValueError as exc:
-        hinweise.append(str(exc))
-    else:
-        result = extract_invoice_data(text)
-        extracted_nummer = result.rechnungsnummer
-        extracted_betrag = result.rechnungsbetrag
-        waehrung = result.waehrung
-        if result.hinweise:
-            hinweise.append(result.hinweise)
+    extracted_nummer = result.rechnungsnummer
+    extracted_betrag = result.rechnungsbetrag
+    waehrung = result.waehrung
+    if result.hinweise:
+        hinweise.append(result.hinweise)
 
     final_nummer = extracted_nummer
     final_betrag = extracted_betrag

@@ -1,6 +1,6 @@
 # Doku-Agent
 
-Rechnungsplattform: PDF-Rechnungen hochladen, einem Bauvorhaben (Projektname) zuordnen und Rechnungsnummer sowie Rechnungsbetrag automatisch extrahieren. Digitale PDFs werden per PyMuPDF direkt gelesen, gescannte PDFs (ohne Textschicht) per OCR (RapidOCR/ONNX), anschließend Regex-Heuristik. Datenhaltung über SQLAlchemy (lokal SQLite, produktiv Supabase Postgres), PDF-Ablage lokal oder in Supabase Storage.
+Rechnungsplattform: PDF-Rechnungen hochladen, einem Bauvorhaben (Projektname) zuordnen und Rechnungsnummer sowie Rechnungsbetrag automatisch extrahieren. Digitale PDFs werden per PyMuPDF direkt gelesen und per Regex-Heuristik ausgewertet; gescannte PDFs (ohne Textschicht) werden per Gemini Flash (LLM Vision) extrahiert. Datenhaltung über SQLAlchemy (lokal SQLite, produktiv Supabase Postgres), PDF-Ablage lokal oder in Supabase Storage.
 
 ## Struktur
 
@@ -54,19 +54,25 @@ Vite läuft auf http://localhost:5173, ein Proxy leitet `/api` an http://localho
 .venv\Scripts\python -m pytest tests/ -v
 ```
 
-## Scan-PDFs (OCR)
+## Scan-PDFs (Gemini Flash)
 
-PDFs ohne Textschicht (Scans) werden automatisch per OCR gelesen (RapidOCR + ONNX Runtime, pip-installierbar, keine System-Binaries nötig). Die OCR-Modelle liegen der `rapidocr`-Installation bei und werden beim ersten Start geladen (einmalig ~1 s). Die Textextraktion dauert dadurch bei Scan-PDFs einige Sekunden pro Seite; digitale PDFs bleiben unverändert schnell.
+PDFs ohne Textschicht (Scans) werden automatisch per **Gemini Flash** extrahiert. Dafür wird der API-Key aus [Google AI Studio](https://aistudio.google.com/apikey) benötigt.
 
-**Render-Hinweis:** `rapidocr` zieht `opencv-python` nach, das auf Linux `libGL` benötigt und zusätzlichen Speicher kostet. Im Build-Command wird es deshalb durch die headless-Variante ersetzt (identische `cv2`-API ohne GUI-Anteile). Build Command:
+Lokal in `backend/.env`:
 
-```bash
-pip install -r requirements.txt && pip uninstall -y opencv-python && pip install opencv-python-headless
+```env
+GEMINI_API_KEY=dein-api-key
+# optional:
+# GEMINI_MODEL=gemini-2.0-flash
 ```
 
-Die headless-Variante braucht keine System-Pakete wie `libgl1`/`libglib2.0-0`.
+Auf Render als Secret `GEMINI_API_KEY` setzen. Der Free Tier von Gemini Flash reicht für typische Upload-Volumina (ca. 500–1.500 Anfragen/Tag).
 
-**Speicher (OCR):** Beim OCR-Rendering wird die Seitenkantenlänge per Zoom-Matrix auf `OCR_MAX_SIDE` (Standard `1000` px) begrenzt. Das verhindert Speicherspitzen bei Scanner-PDFs, deren Seitenbox in Punkten der Pixelgröße entspricht (z. B. 2480×3508 pt → `get_pixmap(dpi=300)` würde sonst eine ~10.000 px große Bitmap erzeugen). RapidOCR skaliert intern ohnehin auf max. 2000 px, sodass die Begrenzung kaum Qualität kostet. Für schärfere Crops bei kleinem Text auf größeren Instanzen `OCR_MAX_SIDE=1500` (oder höher) setzen. Der OCR-Pfad loggt den RSS-Verbrauch („OCR gestartet/abgeschlossen (RSS … MB)“), um den Speicherbedarf im Render-Log zu beobachten.
+**Hinweise:**
+- Digitale PDFs werden weiterhin lokal per PyMuPDF + Regex verarbeitet (schnell, kostenlos, datenschutzfreundlich).
+- Scan-PDFs werden als Ganzes an Gemini gesendet; auf Render entfällt damit der speicherintensive OCR-Pfad (RapidOCR/OpenCV).
+- Die Extraktion dauert bei Scan-PDFs typisch 2–8 Sekunden pro Rechnung.
+- Rechnungsdaten aus Scans verlassen den Server Richtung Google API.
 
 ## Deployment
 
@@ -102,11 +108,13 @@ Die Tabellen werden beim ersten Start automatisch von FastAPI angelegt (`Base.me
 
 ### Render (Backend)
 
-- `render.yaml` wird als Blueprint unterstützt (New → Blueprint). Alternativ manuell: New Web Service → Root-Directory `backend` wählen (wenn das Repo an der Wurzel liegt), Build Command `pip install -r requirements.txt && pip uninstall -y opencv-python && pip install opencv-python-headless`, Start Command `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+- `render.yaml` wird als Blueprint unterstützt (New → Blueprint). Alternativ manuell: New Web Service → Root-Directory `backend` wählen (wenn das Repo an der Wurzel liegt), Build Command `pip install -r requirements.txt`, Start Command `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
 - Env-Variablen in Render setzen:
   - `DATABASE_URL` (Supabase-Pooler-URL)
   - `CORS_ORIGINS` (z.B. `https://rechnung-doku.netlify.app,http://localhost:5173`)
   - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, optional `SUPABASE_STORAGE_BUCKET=invoices`
+  - `GEMINI_API_KEY` (für Scan-PDF-Extraktion)
+  - optional `GEMINI_MODEL=gemini-2.0-flash`
   - optional `UPLOAD_DIR=./uploads` (nur lokaler Fallback relevant)
 - **Upload-Persistenz:** Mit Supabase Storage überleben die PDFs jeden Redeploy und sind über alle Instanzen geteilt. Der lokale Fallback (`./uploads`) ist auf dem Free-Tier von Render ephemer – dort gehen hochgeladene PDFs bei jedem Restart/Deploy verloren.
 - Automatische Deployments: Repo auf GitHub, Render verbindet sich.

@@ -11,11 +11,9 @@ class Settings(BaseSettings):
     supabase_url: str | None = None
     supabase_service_key: str | None = None
     supabase_storage_bucket: str = "invoices"
-    # Max. Seitenkantenlänge (px) fürs OCR-Rendering. Begrenzt die Bitmap-Größe
-    # (und damit den Speicher) bei Scanner-PDFs mit übergroßer Seitenbox.
-    # 1000 = sicher unter dem Render-Free-Limit (512 MB), 1500+ = bessere
-    # Erkennung kleiner Schrift auf größeren Instanzen.
-    ocr_max_side: int = 1000
+    # Gemini Flash für Scan-PDFs ohne Textschicht (Hybrid-Extraktion).
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.0-flash"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
