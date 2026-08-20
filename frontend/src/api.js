@@ -5,6 +5,33 @@
 
 export const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
+const RETRYABLE_STATUSES = [502, 503, 504];
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url, options = {}) {
+  const maxAttempts = 3;
+  for (let attempt = 1; ; attempt++) {
+    let res;
+    try {
+      res = await fetch(url, options);
+    } catch (err) {
+      if (attempt < maxAttempts) {
+        await sleep(1500 * attempt);
+        continue;
+      }
+      throw err;
+    }
+    if (attempt < maxAttempts && RETRYABLE_STATUSES.includes(res.status)) {
+      await sleep(1500 * attempt);
+      continue;
+    }
+    return res;
+  }
+}
+
 /**
  * Gemeinsame Fehlerbehandlung für fetch-Antworten.
  * Wirft einen Error mit einer menschenlesbaren Meldung, falls der
@@ -64,7 +91,7 @@ export async function listInvoices(bauvorhaben) {
   const query = bauvorhaben
     ? `?bauvorhaben=${encodeURIComponent(bauvorhaben)}`
     : "";
-  const res = await fetch(`${API_BASE}/invoices${query}`);
+  const res = await fetchWithRetry(`${API_BASE}/invoices${query}`);
   return handleResponse(res);
 }
 
@@ -100,7 +127,7 @@ export async function deleteInvoice(id) {
  * @returns {Promise<string[]>}
  */
 export async function listBauvorhaben() {
-  const res = await fetch(`${API_BASE}/bauvorhaben`);
+  const res = await fetchWithRetry(`${API_BASE}/bauvorhaben`);
   return handleResponse(res);
 }
 
