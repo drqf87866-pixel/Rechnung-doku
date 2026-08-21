@@ -1,6 +1,6 @@
 # Doku-Agent
 
-Rechnungsplattform: PDF-Rechnungen hochladen, einem Bauvorhaben (Projektname) zuordnen und Rechnungsnummer sowie Rechnungsbetrag automatisch extrahieren. Digitale PDFs werden per PyMuPDF direkt gelesen und per Regex-Heuristik ausgewertet; gescannte PDFs (ohne Textschicht) werden per Gemini Flash (LLM Vision) extrahiert. Datenhaltung über SQLAlchemy (lokal SQLite, produktiv Supabase Postgres), PDF-Ablage lokal oder in Supabase Storage.
+Rechnungsplattform: PDF-Rechnungen hochladen, einem Bauvorhaben (Projektname) zuordnen und Rechnungsnummer sowie Rechnungsbetrag automatisch extrahieren. Digitale PDFs werden per PyMuPDF direkt gelesen und per Regex-Heuristik ausgewertet; gescannte PDFs (ohne Textschicht) werden per Gemini Flash (LLM Vision) extrahiert. Datenhaltung über SQLAlchemy (lokal SQLite, produktiv Supabase Postgres), PDF-Ablage lokal oder in Supabase Storage. Zugang über Login (JWT); Administratoren verwalten Benutzer unter **Benutzer**.
 
 ## Struktur
 
@@ -31,6 +31,22 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Die interaktive API-Doku ist unter http://localhost:8000/docs erreichbar.
+
+## Benutzerverwaltung / Login
+
+Beim ersten Start ohne Benutzer erscheint im Frontend ein **Setup-Formular** für den ersten Administrator. Alternativ per Env (nur wenn die Tabelle `users` leer ist):
+
+```env
+JWT_SECRET=langes-zufaelliges-geheimnis
+BOOTSTRAP_ADMIN_USERNAME=admin
+BOOTSTRAP_ADMIN_PASSWORD=sicheres-passwort
+```
+
+- Rollen: `admin` (Benutzerverwaltung) und `user` (Rechnungen)
+- Alle Rechnungs-APIs erfordern ein Bearer-Token
+- Admins legen unter **Benutzer** weitere Zugänge an, setzen Passwörter zurück oder deaktivieren Konten
+- Jeder Benutzer sieht standardmäßig nur **eigene** Rechnungen
+- Bauvorhaben können unter **Teilen** freigegeben werden – dann sehen Owner und Empfänger gegenseitig die Rechnungen dieses Bauvorhabens (Bearbeiten/Löschen bleibt beim jeweiligen Eigentümer)
 
 ## Frontend einrichten
 
@@ -114,6 +130,8 @@ Die Tabellen werden beim ersten Start automatisch von FastAPI angelegt (`Base.me
   - `CORS_ORIGINS` (z.B. `https://rechnung-doku.netlify.app,http://localhost:5173`)
   - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, optional `SUPABASE_STORAGE_BUCKET=invoices`
   - `GEMINI_API_KEY` (für Scan-PDF-Extraktion)
+  - `JWT_SECRET` (Pflicht in Produktion)
+  - optional `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` (erster Admin)
   - optional `GEMINI_MODEL=gemini-3.6-flash`
   - optional `UPLOAD_DIR=./uploads` (nur lokaler Fallback relevant)
 - **Upload-Persistenz:** Mit Supabase Storage überleben die PDFs jeden Redeploy und sind über alle Instanzen geteilt. Der lokale Fallback (`./uploads`) ist auf dem Free-Tier von Render ephemer – dort gehen hochgeladene PDFs bei jedem Restart/Deploy verloren.

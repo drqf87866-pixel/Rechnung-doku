@@ -19,6 +19,12 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: BOOTSTRAP_ADMIN_USERNAME
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
       - key: SUPABASE_STORAGE_BUCKET
         value: invoices
       - key: UPLOAD_DIR

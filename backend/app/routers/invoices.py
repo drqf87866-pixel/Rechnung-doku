@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Generator, Optional
+from typing import Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -9,19 +9,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models, schemas, storage
-from app.database import SessionLocal
+from app.access import (
+    invoice_visibility_filter,
+    user_can_access_invoice,
+    user_can_manage_invoice,
+    user_can_share_bauvorhaben,
+)
+from app.security import get_current_user, get_db
 from app.services.invoice_extractor import extract_from_pdf
 from app.services.regex_extractor import parse_german_number
 
 router = APIRouter(prefix="/api")
-
-
-def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _attachment_header(filename: str) -> str:
@@ -42,9 +40,11 @@ def _is_pdf(file: UploadFile) -> bool:
     return filename.lower().endswith(".pdf")
 
 
-def _get_or_404(db: Session, invoice_id: int) -> models.Invoice:
+def _get_visible_or_404(
+    db: Session, user: models.User, invoice_id: int
+) -> models.Invoice:
     invoice = db.get(models.Invoice, invoice_id)
-    if invoice is None:
+    if invoice is None or not user_can_access_invoice(db, user, invoice):
         raise HTTPException(status_code=404, detail="Rechnung nicht gefunden")
     return invoice
 
@@ -56,6 +56,7 @@ def upload_invoice(
     rechnungsnummer: Optional[str] = Form(default=None),
     rechnungsbetrag: Optional[str] = Form(default=None),
     db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
 ) -> models.Invoice:
     if not _is_pdf(file):
         raise HTTPException(status_code=400, detail="Nur PDF-Dateien sind erlaubt")
@@ -108,6 +109,7 @@ def upload_invoice(
         konfidenz = 0.0
 
     invoice = models.Invoice(
+        owner_id=user.id,
         filename=file.filename or stored_filename,
         stored_filename=stored_filename,
         bauvorhaben=bauvorhaben,
@@ -136,16 +138,25 @@ def upload_invoice(
 def list_invoices(
     bauvorhaben: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
 ) -> list[models.Invoice]:
-    stmt = select(models.Invoice).order_by(models.Invoice.id.desc())
+    stmt = (
+        select(models.Invoice)
+        .where(invoice_visibility_filter(db, user.id))
+        .order_by(models.Invoice.id.desc())
+    )
     if bauvorhaben:
         stmt = stmt.where(models.Invoice.bauvorhaben == bauvorhaben)
     return list(db.execute(stmt).scalars().all())
 
 
 @router.get("/invoices/{invoice_id}", response_model=schemas.InvoiceOut)
-def get_invoice(invoice_id: int, db: Session = Depends(get_db)) -> models.Invoice:
-    return _get_or_404(db, invoice_id)
+def get_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> models.Invoice:
+    return _get_visible_or_404(db, user, invoice_id)
 
 
 @router.patch("/invoices/{invoice_id}", response_model=schemas.InvoiceOut)
@@ -153,8 +164,14 @@ def patch_invoice(
     invoice_id: int,
     payload: schemas.InvoicePatch,
     db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
 ) -> models.Invoice:
-    invoice = _get_or_404(db, invoice_id)
+    invoice = _get_visible_or_404(db, user, invoice_id)
+    if not user_can_manage_invoice(user, invoice):
+        raise HTTPException(
+            status_code=403,
+            detail="Nur der Eigentümer darf diese Rechnung bearbeiten",
+        )
     data = payload.model_dump(exclude_unset=True)
     for key, value in data.items():
         if isinstance(value, str) and not value.strip():
@@ -166,21 +183,31 @@ def patch_invoice(
 
 
 @router.delete("/invoices/{invoice_id}", status_code=204)
-def delete_invoice(invoice_id: int, db: Session = Depends(get_db)) -> None:
-    invoice = _get_or_404(db, invoice_id)
+def delete_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> None:
+    invoice = _get_visible_or_404(db, user, invoice_id)
+    if not user_can_manage_invoice(user, invoice):
+        raise HTTPException(
+            status_code=403,
+            detail="Nur der Eigentümer darf diese Rechnung löschen",
+        )
+    stored = invoice.stored_filename
     db.delete(invoice)
     db.commit()
-    # Fehler beim Storage-Löschen werden in storage.delete_file geloggt und
-    # schlucken nicht länger still – ein evtl. verbleibendes Orphan ist so
-    # in den Logs auffindbar.
-    storage.delete_file(invoice.stored_filename)
+    storage.delete_file(stored)
 
 
 @router.get("/invoices/{invoice_id}/file")
-def get_invoice_file(invoice_id: int, db: Session = Depends(get_db)) -> Response:
-    invoice = _get_or_404(db, invoice_id)
+def get_invoice_file(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> Response:
+    invoice = _get_visible_or_404(db, user, invoice_id)
 
-    # Lokaler Fallback: wie bisher streamen (Range-/Caching-Support).
     local_path = storage.get_local_path(invoice.stored_filename)
     if local_path is not None:
         return FileResponse(
@@ -202,9 +229,48 @@ def get_invoice_file(invoice_id: int, db: Session = Depends(get_db)) -> Response
     )
 
 
-@router.get("/bauvorhaben")
-def list_bauvorhaben(db: Session = Depends(get_db)) -> list[str]:
-    rows = db.execute(
-        select(models.Invoice.bauvorhaben).distinct().order_by(models.Invoice.bauvorhaben)
-    ).scalars().all()
-    return list(rows)
+@router.get("/bauvorhaben", response_model=list[schemas.BauvorhabenInfo])
+def list_bauvorhaben(
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+) -> list[schemas.BauvorhabenInfo]:
+    names = list(
+        db.execute(
+            select(models.Invoice.bauvorhaben)
+            .where(invoice_visibility_filter(db, user.id))
+            .distinct()
+            .order_by(models.Invoice.bauvorhaben)
+        ).scalars().all()
+    )
+    # Auch Bauvorhaben ohne Rechnungen, für die ich nur Freigaben halte
+    share_names = list(
+        db.execute(
+            select(models.BauvorhabenShare.bauvorhaben)
+            .where(
+                (models.BauvorhabenShare.owner_id == user.id)
+                | (models.BauvorhabenShare.shared_with_user_id == user.id)
+            )
+            .distinct()
+        ).scalars().all()
+    )
+    all_names = sorted(set(names) | set(share_names), key=lambda n: n.lower())
+
+    result: list[schemas.BauvorhabenInfo] = []
+    for name in all_names:
+        share_hit = db.execute(
+            select(models.BauvorhabenShare.id)
+            .where(
+                models.BauvorhabenShare.bauvorhaben == name,
+                (models.BauvorhabenShare.owner_id == user.id)
+                | (models.BauvorhabenShare.shared_with_user_id == user.id),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        result.append(
+            schemas.BauvorhabenInfo(
+                name=name,
+                is_shared=share_hit is not None,
+                can_manage_shares=user_can_share_bauvorhaben(db, user.id, name),
+            )
+        )
+    return result

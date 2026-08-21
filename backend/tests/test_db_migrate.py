@@ -36,6 +36,7 @@ def test_ensure_invoice_columns_adds_missing(tmp_path):
     names = {row[1] for row in rows}
     assert "nettobetrag" in names
     assert "steuerbetrag" in names
+    assert "owner_id" in names
 
     # Idempotent: zweiter Aufruf darf nicht scheitern.
     ensure_invoice_columns(engine)

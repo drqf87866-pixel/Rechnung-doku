@@ -8,7 +8,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.services.regex_extractor import ExtractionResult, derive_missing_amounts
+from app.services.regex_extractor import ExtractionResult, reconcile_amounts
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +25,12 @@ _PROMPT = (
     "Wenn beide Nummern auf dem Beleg stehen, müssen sie in getrennte Felder.\n"
     "- rechnungsbetrag: der Endbetrag bzw. Zahlbetrag ohne Abzug / Bruttobetrag "
     "als Dezimalzahl (z. B. 1234.56). Nicht Positionssummen, Netto ohne Steuer "
-    "oder Skonto-Zwischensummen.\n"
-    "- nettobetrag: der Nettobetrag vor Steuer als Dezimalzahl, falls erkennbar.\n"
-    "- steuerbetrag: der Steuerbetrag (MwSt./USt./VAT) als Dezimalzahl, falls erkennbar. "
-    "Nicht den Steuersatz in Prozent.\n"
+    "oder Skonto-Zwischensummen. Niemals eine Jahreszahl (2024, 2025, 2026, …).\n"
+    "- nettobetrag: die Netto-Gesamtsumme vor Steuer als Dezimalzahl, falls erkennbar. "
+    "Nicht die Tabellenspalte 'Nettowert' einzelner Positionen, nicht ein Datum/Jahr.\n"
+    "- steuerbetrag: nur der MwSt-/USt-Betrag in Geld, nicht der Steuersatz in Prozent "
+    "und nicht die Bemessungsgrundlage nach 'aus' "
+    "(z. B. '19 % aus 20,29  3,86' → Steuer 3.86, Netto 20.29).\n"
     "- waehrung: EUR, CHF, USD oder GBP."
 )
 
@@ -59,13 +61,15 @@ class LlmInvoiceFields(BaseModel):
     nettobetrag: float | None = Field(
         default=None,
         description=(
-            "Nettobetrag vor Steuer als Dezimalzahl, falls auf der Rechnung ausgewiesen."
+            "Netto-Gesamtsumme vor Steuer als Dezimalzahl. "
+            "Nicht Tabellenspalte Nettowert, nicht Datum/Jahr."
         ),
     )
     steuerbetrag: float | None = Field(
         default=None,
         description=(
-            "Steuerbetrag (MwSt./USt./VAT) als Dezimalzahl, nicht der Prozentsatz."
+            "MwSt-/USt-Betrag als Dezimalzahl, nicht der Prozentsatz "
+            "und nicht die Bemessungsgrundlage nach 'aus'."
         ),
     )
     waehrung: str = Field(
@@ -102,7 +106,7 @@ def _result_from_fields(fields: LlmInvoiceFields, hinweise_prefix: str | None = 
             rechnungsnummer = None
 
     rechnungsbetrag = fields.rechnungsbetrag
-    nettobetrag, steuerbetrag = derive_missing_amounts(
+    nettobetrag, steuerbetrag = reconcile_amounts(
         rechnungsbetrag, fields.nettobetrag, fields.steuerbetrag
     )
     waehrung = _normalize_waehrung(fields.waehrung)

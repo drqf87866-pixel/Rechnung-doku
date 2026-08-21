@@ -1,26 +1,22 @@
 import { formatBetrag } from "../format.js";
 import { exportBauvorhabenExcel } from "../exportExcel.js";
 import InvoiceList from "./InvoiceList.jsx";
+import SharePanel from "./SharePanel.jsx";
 
 /**
  * Detailseite eines Bauvorhabens: Summe, Excel-Export und Rechnungstabelle.
- *
- * @param {Object} props
- * @param {string} props.name
- * @param {Object[]} props.invoices
- * @param {number} props.summe
- * @param {() => void} props.onBack
- * @param {(invoice: Object) => void} props.onDelete
- * @param {(id: number, patch: Object) => Promise<void>} props.onUpdate
- * @param {boolean} props.loading
  */
 export default function BauvorhabenDetail({
   name,
   invoices,
   summe,
+  isShared,
+  canManageShares,
+  currentUser,
   onBack,
   onDelete,
   onUpdate,
+  onShareChanged,
   loading,
 }) {
   function handleExport() {
@@ -35,7 +31,12 @@ export default function BauvorhabenDetail({
 
       <div className="detail-header">
         <div>
-          <h2 className="detail-title">{name}</h2>
+          <h2 className="detail-title">
+            {name}
+            {isShared && (
+              <span className="badge badge-ok share-badge">Geteilt</span>
+            )}
+          </h2>
           <p className="detail-sum">{formatBetrag(summe, "EUR")}</p>
           <p className="tile-meta">
             {invoices.length === 1
@@ -43,18 +44,27 @@ export default function BauvorhabenDetail({
               : `${invoices.length} Rechnungen`}
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleExport}
-          disabled={invoices.length === 0}
-        >
-          Excel exportieren
-        </button>
+        <div className="detail-header-actions">
+          <SharePanel
+            bauvorhaben={name}
+            currentUser={currentUser}
+            canManageShares={canManageShares}
+            onChanged={onShareChanged}
+          />
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleExport}
+            disabled={invoices.length === 0}
+          >
+            Excel exportieren
+          </button>
+        </div>
       </div>
 
       <InvoiceList
         invoices={invoices}
+        currentUserId={currentUser?.id}
         onDelete={onDelete}
         onUpdate={onUpdate}
         loading={loading}

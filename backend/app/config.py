@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     # Gemini Flash für Scan-PDFs ohne Textschicht (Hybrid-Extraktion).
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.6-flash"
+    # JWT-Auth für Benutzerverwaltung (in Produktion zwingend setzen).
+    jwt_secret: str = "dev-only-change-me"
+    jwt_expire_minutes: int = 60 * 24 * 7  # 7 Tage
+    # Optionaler Bootstrap des ersten Admins beim Start (nur wenn users leer).
+    bootstrap_admin_username: str | None = None
+    bootstrap_admin_password: str | None = None
+    bootstrap_admin_display_name: str = "Administrator"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

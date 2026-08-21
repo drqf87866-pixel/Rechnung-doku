@@ -153,6 +153,7 @@ def test_dockenhudener_layout():
     result = extract_invoice_data(text)
     assert result.rechnungsnummer == "91016032"
     assert result.rechnungsbetrag == 24.15
+    assert result.nettobetrag != 2026
     assert result.konfidenz == 1.0
 
 
@@ -207,6 +208,22 @@ def test_bogdanski_werte_in_einer_zeile():
     assert result.rechnungsnummer == "878234"
     assert result.rechnungsbetrag == 267.19
     assert result.rechnungsnummer != "L02634"
+
+
+def test_bogdanski_warenwert_und_mwst():
+    text = (
+        "KD-Nr. Rechn.Nr.   Datum    Blatt\n"
+        "926 L02634   878234   13.08.2026   1\n"
+        "Warenwert :      224,53 EUR\n"
+        " 19,00%MWST:       42,66 EUR\n"
+        "    Gesamt:      267,19 EUR\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "878234"
+    assert result.rechnungsbetrag == 267.19
+    assert result.nettobetrag == 224.53
+    assert result.steuerbetrag == 42.66
+
 
 def test_trennscheibe_kein_rechnungsnummer_fehltreffer():
     text = (
@@ -327,3 +344,66 @@ def test_kundennummer_und_rechnungsnummer_getrennt_gelabelt():
     result = extract_invoice_data(text)
     assert result.rechnungsnummer == "91016032"
     assert result.rechnungsbetrag == 24.15
+
+
+def test_dockenhudener_kein_jahr_als_netto():
+    """Spalte 'Nettowert' + Datum darf nicht 2026 als Netto ziehen."""
+    text = (
+        "Rechnung\n"
+        "Nummer\n"
+        "91016032\n"
+        "Datum\n"
+        "17.08.2026\n"
+        "Kundennummer\n"
+        "1020558\n"
+        "Position\n"
+        "Bezeichnung\n"
+        "Menge\n"
+        "E-Preis\n"
+        "PE\n"
+        "Nettowert\n"
+        "Auftrag: 1328673 / Auftragsdatum: 17.08.2026\n"
+        "Lieferung: 81520602 / Lieferdatum: 17.08.2026\n"
+        "10\n"
+        "Wolf Außenfühler\n"
+        "1 ST\n"
+        "19,80\n"
+        "Summe Positionen\n"
+        "19,80\n"
+        "ELK\n"
+        "0,49\n"
+        "Mehrwertsteuer\n"
+        "19 %\n"
+        "aus\n"
+        "20,29\n"
+        "3,86\n"
+        "Endbetrag\n"
+        "24,15\n"
+        "Bis zum 27.08.2026 erhalten Sie 2,000  % Skonto\n"
+        "Bis zum 16.09.2026 ohne Abzug\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsnummer == "91016032"
+    assert result.rechnungsbetrag == 24.15
+    assert result.nettobetrag == 20.29
+    assert result.steuerbetrag == 3.86
+    assert result.nettobetrag != 2026
+
+
+def test_mwst_aus_bemessungsgrundlage_nicht_als_steuer():
+    text = (
+        "Rechnungsnummer: RE-60\n"
+        "Mehrwertsteuer 19 % aus 100,00 19,00\n"
+        "Endbetrag 119,00 EUR\n"
+    )
+    result = extract_invoice_data(text)
+    assert result.rechnungsbetrag == 119.0
+    assert result.steuerbetrag == 19.0
+    assert result.nettobetrag == 100.0
+
+
+def test_jahr_ohne_waehrung_kein_betrag():
+    text = "Nettowert\nAuftragsdatum: 17.08.2026\nEndbetrag 24,15 EUR"
+    result = extract_invoice_data(text)
+    assert result.rechnungsbetrag == 24.15
+    assert result.nettobetrag != 2026

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fileUrl } from "../api.js";
+import { downloadInvoiceFile } from "../api.js";
 import { formatBetrag, formatDatum, konfidenzInfo } from "../format.js";
 
 /**
@@ -41,12 +41,31 @@ function sumField(invoices, field) {
  * @param {(id: number, patch: Object) => Promise<void>} props.onUpdate
  * @param {boolean} props.loading
  */
-export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
+export default function InvoiceList({
+  invoices,
+  currentUserId,
+  onDelete,
+  onUpdate,
+  loading,
+}) {
   const [editingId, setEditingId] = useState(null);
   const [editNummer, setEditNummer] = useState("");
   const [editBetrag, setEditBetrag] = useState("");
   const [saving, setSaving] = useState(false);
+  const [downloadingId, setDownloadingId] = useState(null);
   const [error, setError] = useState("");
+
+  async function handleDownload(invoice) {
+    setDownloadingId(invoice.id);
+    setError("");
+    try {
+      await downloadInvoiceFile(invoice.id, invoice.filename || "rechnung.pdf");
+    } catch (err) {
+      setError(err.message || "Download fehlgeschlagen.");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   function startEdit(invoice) {
     setEditingId(invoice.id);
@@ -132,6 +151,8 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
             {invoices.map((invoice) => {
               const konfidenz = konfidenzInfo(invoice.konfidenz);
               const isEditing = editingId === invoice.id;
+              const isOwn =
+                currentUserId == null || invoice.owner_id === currentUserId;
               return (
                 <tr key={invoice.id} className={isEditing ? "row-editing" : ""}>
                   <td>
@@ -162,6 +183,9 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
                   <td>{formatBetrag(invoice.steuerbetrag, invoice.waehrung)}</td>
                   <td className="cell-truncate" title={invoice.filename}>
                     {invoice.filename}
+                    {!isOwn && (
+                      <span className="muted shared-tag"> · geteilt</span>
+                    )}
                   </td>
                   <td>
                     <span className={`badge badge-${konfidenz.level}`}>
@@ -190,27 +214,32 @@ export default function InvoiceList({ invoices, onDelete, onUpdate, loading }) {
                       </div>
                     ) : (
                       <div className="actions-group">
+                        {isOwn && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => startEdit(invoice)}
+                          >
+                            Bearbeiten
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"
-                          onClick={() => startEdit(invoice)}
+                          disabled={downloadingId === invoice.id}
+                          onClick={() => handleDownload(invoice)}
                         >
-                          Bearbeiten
+                          {downloadingId === invoice.id ? "Lädt…" : "Download"}
                         </button>
-                        <a
-                          className="btn btn-secondary btn-sm"
-                          href={fileUrl(invoice.id)}
-                          download
-                        >
-                          Download
-                        </a>
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
-                          onClick={() => confirmDelete(invoice)}
-                        >
-                          Löschen
-                        </button>
+                        {isOwn && (
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => confirmDelete(invoice)}
+                          >
+                            Löschen
+                          </button>
+                        )}
                       </div>
                     )}
                   </td>

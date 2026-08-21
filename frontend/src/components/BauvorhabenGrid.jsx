@@ -2,11 +2,6 @@ import { formatBetrag } from "../format.js";
 
 /**
  * Kachel-Übersicht aller Bauvorhaben (Name, Anzahl, Gesamtsumme).
- *
- * @param {Object} props
- * @param {{ name: string, invoices: Object[], summe: number, count: number }[]} props.groups
- * @param {(name: string) => void} props.onSelect
- * @param {boolean} props.loading
  */
 export default function BauvorhabenGrid({ groups, onSelect, loading }) {
   if (loading) {
@@ -38,7 +33,12 @@ export default function BauvorhabenGrid({ groups, onSelect, loading }) {
             className="tile"
             onClick={() => onSelect(group.name)}
           >
-            <h3 className="tile-title">{group.name}</h3>
+            <h3 className="tile-title">
+              {group.name}
+              {group.isShared && (
+                <span className="badge badge-ok share-badge">Geteilt</span>
+              )}
+            </h3>
             <p className="tile-meta">
               {group.count === 1 ? "1 Rechnung" : `${group.count} Rechnungen`}
             </p>

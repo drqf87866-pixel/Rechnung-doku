@@ -201,3 +201,20 @@ def test_llm_bogdanski_rechn_nr_neben_mehrteiliger_kd_nr():
     )
     assert result.rechnungsnummer == "878234"
     assert result.konfidenz == 0.9
+
+
+def test_llm_verwirft_jahr_und_bemessungsgrundlage():
+    from app.services.llm_extractor import _result_from_fields
+
+    result = _result_from_fields(
+        LlmInvoiceFields(
+            rechnungsnummer="91016032",
+            rechnungsbetrag=24.15,
+            nettobetrag=2026.0,
+            steuerbetrag=20.29,
+            waehrung="EUR",
+        )
+    )
+    assert result.rechnungsbetrag == 24.15
+    assert result.nettobetrag != 2026
+    assert result.steuerbetrag != 20.29

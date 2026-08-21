@@ -112,6 +112,7 @@ _NETTO_LABEL_PARTS = [
     "Nettobetrag",
     "Nettosumme",
     "Nettowert",
+    "Warenwert",
     r"Netto\s*gesamt",
     r"Summe\s*netto",
     r"Zwischensumme\s*netto",
@@ -135,17 +136,43 @@ _STEUER_LABEL_PARTS = [
 _NETTO_LABEL_RES = [re.compile(part, re.IGNORECASE) for part in _NETTO_LABEL_PARTS]
 _STEUER_LABEL_RES = [re.compile(part, re.IGNORECASE) for part in _STEUER_LABEL_PARTS]
 
+# Starke Folgelabels: Suche nach dem Betrag nicht über den nächsten Block hinaus.
+_STOP_LABEL_RE = re.compile(
+    r"(?:"
+    r"Gesamtbetrag|Rechnungsbetrag|Bruttobetrag|Endbetrag"
+    r"|Nettobetrag|Nettosumme|Nettowert|Warenwert"
+    r"|Steuerbetrag|Mehrwertsteuer|Umsatzsteuer"
+    r"|Offener\s+Restbetrag|Zahlbetrag"
+    r")",
+    re.IGNORECASE,
+)
+
+# Spaltenköpfe vor "Nettowert" in Positionstabellen (nicht die Rechnungssumme).
+_COLUMN_HEADER_HINT_RE = re.compile(
+    r"\b(?:menge|e-?preis|einzelpreis|position|bezeichnung|"
+    r"lv-?nummer|material|werksnummer|bestellnummer|einheit)\b",
+    re.IGNORECASE,
+)
+
 # Betrags-Token: vollständige Dezimalzahl bevorzugen; kein abgeschnittenes
-# "24" aus "24,15" und kein Datum "02.09.2026".
+# "24" aus "24,15" und kein Datum "02.09.2026" (Jahr nicht als eigene Zahl).
 _AMOUNT_TOKEN = (
     r"(?:"
     r"\d{1,3}(?:[.\s]\d{3})+,\d{2}"  # 1.234,56
     r"|\d{1,3}(?:[.\s]\d{3})+"  # 1.234
     r"|\d+,\d{2}"  # 24,15
     r"|\d+\.\d{2}(?!\.\d)"  # 24.15, aber nicht 02.09.2026
-    r"|\d+(?![.,]\d)"  # ganze Zahl, nicht Präfix eines Dezimal-/Datumswerts
+    r"|(?<!\.)\d+(?![.,]\d)"  # ganze Zahl, nicht Jahr von 17.08.2026
     r")"
 )
+
+_CURRENCY_TOKEN_RE = re.compile(r"€|EUR|Euro|CHF|USD|\$", re.IGNORECASE)
+_DATE_YEAR_PREFIX_RE = re.compile(r"\d{1,2}\s*[./-]\s*\d{1,2}\s*[./-]\s*$")
+_ISO_DATE_SUFFIX_RE = re.compile(r"\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2}\b")
+_AUS_BASE_PREFIX_RE = re.compile(r"\baus\s*$", re.IGNORECASE)
+_YEAR_MIN = 1900
+_YEAR_MAX = 2099
+_MAX_VAT_RATIO = 0.30
 
 _DATE_AHEAD = r"\d{1,2}\.\d{1,2}\.\d{2,4}"
 
@@ -423,17 +450,89 @@ def _is_skonto_zahlbetrag_context(label: str, after_slice: str) -> bool:
     return bool(re.search(r"skonto", window, re.IGNORECASE))
 
 
-def _amount_after_label(text: str, match: re.Match[str]) -> float | None:
+def _is_positionssumme_context(label: str, after_slice: str) -> bool:
+    """'Summe Positionen' ist eine Zwischensumme, nicht der Rechnungsbetrag."""
+    return bool(re.search(r"summe\s+position", label + after_slice[:40], re.IGNORECASE))
+
+
+def _truncate_at_next_label(after: str) -> str:
+    """Nicht über den nächsten Betragsblock (Endbetrag, MwSt, …) hinaus suchen."""
+    stop = _STOP_LABEL_RE.search(after)
+    if stop and stop.start() > 0:
+        return after[: stop.start()]
+    return after
+
+
+def _is_column_header_match(text: str, match: re.Match[str]) -> bool:
+    """True, wenn das Label in einer Positionstabelle steht, nicht bei der Summe."""
+    before = text[max(0, match.start() - 160) : match.start()]
+    return len(_COLUMN_HEADER_HINT_RE.findall(before)) >= 2
+
+
+def _is_date_year_token(haystack: str, token_start: int, token_end: int) -> bool:
+    """Jahresanteil von 17.08.2026 / 2026-08-17 nicht als Betrag werten."""
+    prefix = haystack[max(0, token_start - 12) : token_start]
+    if _DATE_YEAR_PREFIX_RE.search(prefix):
+        return True
+    suffix = haystack[token_end : token_end + 8]
+    return bool(_ISO_DATE_SUFFIX_RE.match(suffix))
+
+
+def _is_year_like_without_currency(
+    raw: str, value: float, haystack: str, token_start: int, token_end: int
+) -> bool:
+    """Vierstellige Jahreszahl ohne Währung (z. B. 2026) ist kein Betrag."""
+    if not re.fullmatch(r"\d{4}", raw.strip()):
+        return False
+    if value != int(value) or not (_YEAR_MIN <= int(value) <= _YEAR_MAX):
+        return False
+    around = haystack[max(0, token_start - 8) : token_end + 8]
+    return not _CURRENCY_TOKEN_RE.search(around)
+
+
+def _is_aus_bemessungsgrundlage(haystack: str, token_start: int) -> bool:
+    """MwSt-Zeile: Betrag nach 'aus' ist die Netto-Bemessungsgrundlage, nicht die Steuer."""
+    prefix = haystack[max(0, token_start - 12) : token_start]
+    return bool(_AUS_BASE_PREFIX_RE.search(prefix))
+
+
+def _is_plausible_amount(
+    raw: str, value: float, haystack: str, token_start: int, token_end: int
+) -> bool:
+    if value < 0:
+        return False
+    if _is_date_year_token(haystack, token_start, token_end):
+        return False
+    if _is_year_like_without_currency(raw, value, haystack, token_start, token_end):
+        return False
+    return True
+
+
+def _amount_after_label(
+    text: str,
+    match: re.Match[str],
+    *,
+    skip_aus_base: bool = False,
+) -> float | None:
     after = text[match.end() : match.end() + _AMOUNT_SEARCH_WINDOW]
+    after = _truncate_at_next_label(after)
     if _is_skonto_zahlbetrag_context(match.group(0), after):
         return None
-    amount_match = _AMOUNT_AFTER_RE.search(after)
-    if not amount_match:
+    if _is_positionssumme_context(match.group(0), after):
         return None
-    try:
-        return parse_german_number(amount_match.group(1))
-    except ValueError:
-        return None
+    for amount_match in _AMOUNT_AFTER_RE.finditer(after):
+        raw = amount_match.group(1)
+        token_start = amount_match.start(1)
+        token_end = amount_match.end(1)
+        if skip_aus_base and _is_aus_bemessungsgrundlage(after, token_start):
+            continue
+        try:
+            value = parse_german_number(raw)
+        except ValueError:
+            continue
+        if _is_plausible_amount(raw, value, after, token_start, token_end):
+            return value
+    return None
 
 
 def _extract_betrag(text: str) -> tuple[float | None, str]:
@@ -453,15 +552,26 @@ def _extract_betrag(text: str) -> tuple[float | None, str]:
             except ValueError:
                 betrag = None
             if betrag is not None:
-                return betrag, _detect_currency(generic.group(0))
+                token_start = generic.start(1) if generic.group(1) else generic.start(2)
+                token_end = generic.end(1) if generic.group(1) else generic.end(2)
+                if _is_plausible_amount(raw, betrag, generic.string, token_start, token_end):
+                    return betrag, _detect_currency(generic.group(0))
 
     return None, "EUR"
 
 
-def _extract_labeled_betrag(text: str, label_res: list[re.Pattern[str]]) -> float | None:
+def _extract_labeled_betrag(
+    text: str,
+    label_res: list[re.Pattern[str]],
+    *,
+    skip_aus_base: bool = False,
+    skip_column_headers: bool = False,
+) -> float | None:
     for label_re in label_res:
         for match in label_re.finditer(text):
-            betrag = _amount_after_label(text, match)
+            if skip_column_headers and _is_column_header_match(text, match):
+                continue
+            betrag = _amount_after_label(text, match, skip_aus_base=skip_aus_base)
             if betrag is not None:
                 return betrag
     return None
@@ -486,12 +596,48 @@ def derive_missing_amounts(
     return netto, steuer
 
 
+def reconcile_amounts(
+    brutto: float | None,
+    netto: float | None,
+    steuer: float | None,
+) -> tuple[float | None, float | None]:
+    """Verwirft unplausible Netto-/Steuerwerte und ergänzt die fehlende Größe."""
+    if brutto is not None:
+        if netto is not None and netto > brutto + 0.02:
+            netto = None
+        if steuer is not None:
+            too_large = steuer >= brutto - 0.02
+            vat_ratio = steuer / brutto if brutto else 0
+            if too_large or vat_ratio > _MAX_VAT_RATIO:
+                steuer = None
+
+    netto, steuer = derive_missing_amounts(brutto, netto, steuer)
+
+    if (
+        brutto is not None
+        and netto is not None
+        and steuer is not None
+        and abs((netto + steuer) - brutto) > max(0.05, 0.01 * abs(brutto))
+    ):
+        if netto <= brutto + 0.02:
+            return derive_missing_amounts(brutto, netto, None)
+        if steuer < brutto and (steuer / brutto) <= _MAX_VAT_RATIO:
+            return derive_missing_amounts(brutto, None, steuer)
+        return None, None
+
+    return netto, steuer
+
+
 def extract_invoice_data(text: str) -> ExtractionResult:
     rechnungsnummer = _extract_rechnungsnummer(text)
     rechnungsbetrag, waehrung = _extract_betrag(text)
-    nettobetrag = _extract_labeled_betrag(text, _NETTO_LABEL_RES)
-    steuerbetrag = _extract_labeled_betrag(text, _STEUER_LABEL_RES)
-    nettobetrag, steuerbetrag = derive_missing_amounts(
+    nettobetrag = _extract_labeled_betrag(
+        text, _NETTO_LABEL_RES, skip_column_headers=True
+    )
+    steuerbetrag = _extract_labeled_betrag(
+        text, _STEUER_LABEL_RES, skip_aus_base=True
+    )
+    nettobetrag, steuerbetrag = reconcile_amounts(
         rechnungsbetrag, nettobetrag, steuerbetrag
     )
 
