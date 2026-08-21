@@ -23,12 +23,12 @@ _PROMPT = (
     "Bei Tabellenkopf 'KD-Nr. Rechn.Nr. Datum Blatt' ist Rechn.Nr. die Spalte "
     "direkt vor dem Datum (nicht Teile der KD-Nr.). "
     "Wenn beide Nummern auf dem Beleg stehen, müssen sie in getrennte Felder.\n"
-    "- rechnungsbetrag: der Endbetrag bzw. Zahlbetrag ohne Abzug / Bruttobetrag "
-    "als Dezimalzahl (z. B. 1234.56). Nicht Positionssummen, Netto ohne Steuer "
-    "oder Skonto-Zwischensummen. Niemals eine Jahreszahl (2024, 2025, 2026, …).\n"
-    "- nettobetrag: die Netto-Gesamtsumme vor Steuer als Dezimalzahl, falls erkennbar. "
+    "- rechnungsbetrag: der finale Gesamtrechnungsbetrag / Endbetrag bzw. Brutto-Zahlbetrag "
+    "ohne Abzug als Dezimalzahl (z. B. 1234.56). Niemals Positionssummen oder Zwischensummen, "
+    "nicht Netto ohne Steuer, nicht Skonto-Zwischensummen und niemals ein Datum oder eine Jahreszahl.\n"
+    "- nettobetrag: die gesamte Netto-Rechnungssumme vor Steuer als Dezimalzahl, falls erkennbar. "
     "Nicht die Tabellenspalte 'Nettowert' einzelner Positionen, nicht ein Datum/Jahr.\n"
-    "- steuerbetrag: nur der MwSt-/USt-Betrag in Geld, nicht der Steuersatz in Prozent "
+    "- steuerbetrag: nur der gesamte MwSt-/USt-Betrag in Geld, nicht der Steuersatz in Prozent "
     "und nicht die Bemessungsgrundlage nach 'aus' "
     "(z. B. '19 % aus 20,29  3,86' → Steuer 3.86, Netto 20.29).\n"
     "- waehrung: EUR, CHF, USD oder GBP."
@@ -137,8 +137,11 @@ def _result_from_fields(fields: LlmInvoiceFields, hinweise_prefix: str | None = 
     )
 
 
-def extract_invoice_data_via_llm(pdf_bytes: bytes) -> ExtractionResult:
-    """Extrahiert Rechnungsfelder aus Scan-PDFs per Gemini Flash."""
+def extract_invoice_data_via_llm(
+    pdf_bytes: bytes,
+    text: str | None = None,
+) -> ExtractionResult:
+    """Extrahiert Rechnungsfelder per Gemini Flash (aus PDF-Bytes und optionalem Text)."""
     if not settings.gemini_api_key:
         return ExtractionResult(
             rechnungsnummer=None,
@@ -148,14 +151,18 @@ def extract_invoice_data_via_llm(pdf_bytes: bytes) -> ExtractionResult:
             hinweise="Gemini-Extraktion nötig, aber GEMINI_API_KEY ist nicht konfiguriert",
         )
 
+    contents: list[types.Part | str] = [
+        types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
+    ]
+    if text and text.strip():
+        contents.append(f"Extrahierter Text aus dem PDF:\n{text.strip()}")
+    contents.append(_PROMPT)
+
     client = genai.Client(api_key=settings.gemini_api_key)
     try:
         response = client.models.generate_content(
             model=settings.gemini_model,
-            contents=[
-                types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
-                _PROMPT,
-            ],
+            contents=contents,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=LlmInvoiceFields,

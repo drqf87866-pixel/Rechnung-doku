@@ -86,23 +86,51 @@ _PLACEHOLDER_NUMMERN = frozenset(
     }
 )
 
-# Betrag-Labels in absteigender Spezifität. Endbetrag vor Zahlbetrag, damit
-# Skonto-Zeilen ("Zahlbetrag bis …") nicht den Endbetrag überschreiben.
+# Betrag-Labels in absteigender Spezifität, gruppiert in Tiers für Scoring.
+_BETRAG_LABEL_TIERS: list[tuple[list[str], float]] = [
+    (
+        [
+            "Gesamtbetrag",
+            "Rechnungsbetrag",
+            "Bruttobetrag",
+            "Endbetrag",
+            r"Offener\s+Restbetrag",
+            r"Invoice\s*total",
+            r"Total\s*amount",
+            r"Amount\s*due",
+        ],
+        100.0,
+    ),
+    (
+        [
+            "Zahlbetrag",
+            r"Zu\s*zahlen",
+        ],
+        75.0,
+    ),
+    (
+        [
+            r"\bGesamt\b",
+            r"\bTotal\b",
+        ],
+        50.0,
+    ),
+    (
+        [
+            r"\bSumme\b",
+            r"\bBetrag\b",
+        ],
+        25.0,
+    ),
+]
+
+_COMPILED_LABEL_TIERS: list[tuple[list[tuple[re.Pattern[str], str]], float]] = [
+    ([(re.compile(part, re.IGNORECASE), part) for part in parts], weight)
+    for parts, weight in _BETRAG_LABEL_TIERS
+]
+
 _BETRAG_LABEL_PARTS = [
-    "Gesamtbetrag",
-    "Rechnungsbetrag",
-    "Bruttobetrag",
-    "Endbetrag",
-    r"\bGesamt\b",
-    r"Offener\s+Restbetrag",
-    "Zahlbetrag",
-    r"Zu\s*zahlen",
-    r"Invoice\s*total",
-    r"Total\s*amount",
-    r"Amount\s*due",
-    r"\bSumme\b",
-    r"\bTotal\b",
-    r"\bBetrag\b",
+    part for parts, _ in _BETRAG_LABEL_TIERS for part in parts
 ]
 
 _BETRAG_LABEL_RES = [re.compile(part, re.IGNORECASE) for part in _BETRAG_LABEL_PARTS]
@@ -199,6 +227,16 @@ BETRAG_GENERISCH_RE = re.compile(
 
 # Fenster nach dem Label, in dem der Betrag stehen darf (nicht seitenweit suchen).
 _AMOUNT_SEARCH_WINDOW = 120
+
+
+@dataclass
+class AmountCandidate:
+    value: float
+    currency: str
+    label: str
+    tier_weight: float
+    pos: int
+    score: float = 0.0
 
 
 @dataclass
@@ -535,16 +573,30 @@ def _amount_after_label(
     return None
 
 
-def _extract_betrag(text: str) -> tuple[float | None, str]:
-    for label_re in _BETRAG_LABEL_RES:
-        for match in label_re.finditer(text):
-            betrag = _amount_after_label(text, match)
-            if betrag is not None:
-                context = text[max(0, match.start() - 30) : match.end() + 50]
-                return betrag, _detect_currency(context)
+def _collect_betrag_candidates(text: str) -> list[AmountCandidate]:
+    candidates: list[AmountCandidate] = []
+    seen_positions: set[tuple[int, float]] = set()
 
-    generic = BETRAG_GENERISCH_RE.search(text)
-    if generic:
+    for patterns, tier_weight in _COMPILED_LABEL_TIERS:
+        for pattern, label_name in patterns:
+            for match in pattern.finditer(text):
+                betrag = _amount_after_label(text, match)
+                if betrag is not None:
+                    key = (match.start(), betrag)
+                    if key not in seen_positions:
+                        seen_positions.add(key)
+                        context = text[max(0, match.start() - 30) : match.end() + 50]
+                        candidates.append(
+                            AmountCandidate(
+                                value=betrag,
+                                currency=_detect_currency(context),
+                                label=label_name,
+                                tier_weight=tier_weight,
+                                pos=match.start(),
+                            )
+                        )
+
+    for generic in BETRAG_GENERISCH_RE.finditer(text):
         raw = generic.group(1) or generic.group(2)
         if raw:
             try:
@@ -555,9 +607,87 @@ def _extract_betrag(text: str) -> tuple[float | None, str]:
                 token_start = generic.start(1) if generic.group(1) else generic.start(2)
                 token_end = generic.end(1) if generic.group(1) else generic.end(2)
                 if _is_plausible_amount(raw, betrag, generic.string, token_start, token_end):
-                    return betrag, _detect_currency(generic.group(0))
+                    key = (generic.start(), betrag)
+                    if key not in seen_positions:
+                        seen_positions.add(key)
+                        candidates.append(
+                            AmountCandidate(
+                                value=betrag,
+                                currency=_detect_currency(generic.group(0)),
+                                label="generisch",
+                                tier_weight=10.0,
+                                pos=generic.start(),
+                            )
+                        )
 
-    return None, "EUR"
+    return candidates
+
+
+def _score_betrag_candidates(
+    candidates: list[AmountCandidate],
+    text_len: int,
+    netto: float | None,
+    steuer: float | None,
+) -> list[AmountCandidate]:
+    doc_len = max(text_len, 1)
+    for c in candidates:
+        score = c.tier_weight
+        pos_ratio = c.pos / doc_len
+        score += pos_ratio * 20.0
+
+        if netto is not None and steuer is not None:
+            sum_ns = round(netto + steuer, 2)
+            if abs(sum_ns - c.value) <= max(0.05, 0.01 * c.value):
+                score += 60.0
+            elif abs(c.value - netto) <= 0.02:
+                score -= 40.0
+            elif c.value < netto - 0.02:
+                score -= 50.0
+            elif abs(c.value - steuer) <= 0.02:
+                score -= 50.0
+        elif netto is not None:
+            if c.value > netto + 0.02:
+                vat_19 = round(netto * 1.19, 2)
+                vat_7 = round(netto * 1.07, 2)
+                if abs(c.value - vat_19) <= max(0.05, 0.01 * c.value) or abs(c.value - vat_7) <= max(0.05, 0.01 * c.value):
+                    score += 30.0
+                else:
+                    score += 10.0
+            elif abs(c.value - netto) <= 0.02:
+                score -= 30.0
+            elif c.value < netto - 0.02:
+                score -= 50.0
+        elif steuer is not None:
+            if c.value > steuer + 0.02:
+                vat_ratio = steuer / c.value if c.value > 0 else 0
+                if 0.05 <= vat_ratio <= _MAX_VAT_RATIO:
+                    score += 15.0
+                else:
+                    score += 5.0
+            else:
+                score -= 50.0
+
+        c.score = score
+
+    return sorted(candidates, key=lambda x: (x.score, x.pos), reverse=True)
+
+
+def _extract_betrag(
+    text: str,
+    netto: float | None = None,
+    steuer: float | None = None,
+) -> tuple[float | None, str]:
+    if netto is None and steuer is None:
+        netto = _extract_labeled_betrag(text, _NETTO_LABEL_RES, skip_column_headers=True)
+        steuer = _extract_labeled_betrag(text, _STEUER_LABEL_RES, skip_aus_base=True)
+
+    candidates = _collect_betrag_candidates(text)
+    if not candidates:
+        return None, "EUR"
+
+    scored = _score_betrag_candidates(candidates, len(text), netto, steuer)
+    best = scored[0]
+    return best.value, best.currency
 
 
 def _extract_labeled_betrag(
@@ -630,12 +760,14 @@ def reconcile_amounts(
 
 def extract_invoice_data(text: str) -> ExtractionResult:
     rechnungsnummer = _extract_rechnungsnummer(text)
-    rechnungsbetrag, waehrung = _extract_betrag(text)
     nettobetrag = _extract_labeled_betrag(
         text, _NETTO_LABEL_RES, skip_column_headers=True
     )
     steuerbetrag = _extract_labeled_betrag(
         text, _STEUER_LABEL_RES, skip_aus_base=True
+    )
+    rechnungsbetrag, waehrung = _extract_betrag(
+        text, netto=nettobetrag, steuer=steuerbetrag
     )
     nettobetrag, steuerbetrag = reconcile_amounts(
         rechnungsbetrag, nettobetrag, steuerbetrag
